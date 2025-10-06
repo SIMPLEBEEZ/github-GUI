@@ -39,6 +39,7 @@ import AddIcon from "@mui/icons-material/Add";
 import JSZip from "jszip";
 import { diff_match_patch } from "diff-match-patch";
 import { Virtuoso } from "react-virtuoso";
+import DiffPanelBase from "./components/DiffPanelBase";
 
 /*************************************
  * GitHub GUI – MVP (per spec)
@@ -54,9 +55,13 @@ import { Virtuoso } from "react-virtuoso";
  * - Keep repos ≤ ~500 MB and ZIPs ≤ ~100 MB for performance.
  *************************************/
 
-/****************** Services ******************/
+/****************** GitHub API base + helpers ******************/
+
 const GITHUB_API = "https://api.github.com";
 
+/**
+ * Returns default GitHub API headers with your Personal Access Token (PAT).
+ */
 function withAuthHeaders(token) {
   return {
     Authorization: `token ${token}`,
@@ -64,35 +69,61 @@ function withAuthHeaders(token) {
   };
 }
 
+/**
+ * Generic JSON fetch wrapper with proper headers and error handling.
+ */
 async function ghGet(url, token) {
   const res = await fetch(url, { headers: withAuthHeaders(token) });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText} (${url})`);
+  }
   return res.json();
 }
 
+/**
+ * Generic text fetch wrapper (rarely used now; API returns JSON/Base64).
+ */
 async function ghGetText(url, token) {
   const res = await fetch(url, { headers: withAuthHeaders(token) });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText} (${url})`);
+  }
   return res.text();
 }
 
+/**
+ * POST helper for GitHub API endpoints.
+ */
 async function ghPost(url, token, body) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { ...withAuthHeaders(token), "Content-Type": "application/json" },
+    headers: {
+      ...withAuthHeaders(token),
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body ?? {}),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText} (${url})`);
+  }
   return res.json();
 }
 
+/**
+ * PUT helper for GitHub API endpoints.
+ */
 async function ghPut(url, token, body) {
   const res = await fetch(url, {
     method: "PUT",
-    headers: { ...withAuthHeaders(token), "Content-Type": "application/json" },
+    headers: {
+      ...withAuthHeaders(token),
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body ?? {}),
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText} (${url})`);
+  }
   return res.json();
 }
 
@@ -101,48 +132,62 @@ const githubApi = {
     const url = `${GITHUB_API}/repos/${fullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
     return ghGet(url, token);
   },
+
+  // Get raw blob text directly via API (safe, supports private repos)
   async getBlobRaw(token, fullName, sha) {
     const url = `${GITHUB_API}/repos/${fullName}/git/blobs/${sha}`;
     const res = await fetch(url, {
-      headers: { ...withAuthHeaders(token), Accept: "application/vnd.github.raw" },
+      headers: withAuthHeaders(token),
     });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.text();
+    const data = await res.json();
+    if (data.encoding === "base64") {
+      return atob(data.content.replace(/\n/g, ""));
+    }
+    return data.content || "";
   },
+
   async getViewer(token) {
     return ghGet(`${GITHUB_API}/user`, token);
   },
+
   async listRepos(token, visibility = "private") {
     const url = `${GITHUB_API}/user/repos?per_page=100&sort=updated&visibility=${visibility}`;
     return ghGet(url, token);
   },
+
   async listBranches(token, fullName) {
     const url = `${GITHUB_API}/repos/${fullName}/branches?per_page=100`;
     return ghGet(url, token);
   },
+
   async getBranch(token, fullName, branch) {
     const url = `${GITHUB_API}/repos/${fullName}/git/ref/heads/${encodeURIComponent(branch)}`;
     return ghGet(url, token);
   },
+
   async createBranchFrom(token, fullName, newBranch, fromBranch) {
-    // 1) get SHA of fromBranch
     const ref = await this.getBranch(token, fullName, fromBranch);
     const sha = ref.object.sha;
-    // 2) create ref
     const url = `${GITHUB_API}/repos/${fullName}/git/refs`;
     return ghPost(url, token, { ref: `refs/heads/${newBranch}`, sha });
   },
+
   async compareBranches(token, fullName, base, head) {
     const url = `${GITHUB_API}/repos/${fullName}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=300`;
     return ghGet(url, token);
   },
+
+  // ✅ SAFE VERSION – uses only GitHub API (no raw.githubusercontent.com)
   async getFileText(token, fullName, path, ref) {
     const url = `${GITHUB_API}/repos/${fullName}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`;
     const json = await ghGet(url, token);
+
     if (json.encoding === "base64") {
       return atob(json.content.replace(/\n/g, ""));
     }
-    if (json.download_url) return ghGetText(json.download_url, token);
+
+    // Do NOT use json.download_url — raw.githubusercontent.com has no CORS
     return "";
   },
 };
@@ -203,6 +248,14 @@ function diffText(a, b) {
   const diffs = dmp.diff_main(a ?? "", b ?? "");
   dmp.diff_cleanupSemantic(diffs);
   return diffs;
+}
+
+function normalizeXmlText(text) {
+  return (text ?? "")
+    .replace(/\r\n/g, "\n")     // normalize CRLF -> LF
+    .replace(/[ \t]+$/gm, "")   // strip trailing spaces/tabs per line
+    .replace(/^\s*\n/gm, "")    // remove empty lines
+    .trim();                    // trim start/end
 }
 
 function downloadAsZip(files, zipName = "export.zip") {
@@ -442,28 +495,28 @@ function RepoBranchPicker({ token, repo, setRepo, branchA, branchB, setBranchA, 
 }
 
 function BranchDiffPanel({ token, repo, branchA, branchB, setSnack, busy, setBusy }) {
-  const [changedXml, setChangedXml] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [comparison, setComparison] = useState([]);
   const [detail, setDetail] = useState(null);
-
+  const [selected, setSelected] = useState([]);
   const canCompare = repo && branchA && branchB && branchA !== branchB;
 
-  const handleCompare = async () => {
+  const visibleFiles = useMemo(() => comparison.filter((c) => c.status !== "same"), [comparison]);
+
+  const runCompare = async () => {
     if (!canCompare) return;
-    setLoading(true);
     setBusy(true);
-    setDetail(null);
     try {
       const cmp = await githubApi.compareBranches(token, repo.full_name, branchA, branchB);
-      const xmlFiles = onlyXmlFiles(cmp.files);
-      setChangedXml(xmlFiles);
-      if (xmlFiles.length === 0) {
-        setSnack({ open: true, message: "No XML file changes found." });
-      }
+      const xmlFiles = onlyXmlFiles(cmp.files).map((f) => ({
+        path: f.filename,
+        status: f.status,
+      }));
+      setComparison(xmlFiles);
+      setSelected(xmlFiles.filter((f) => f.status !== "same").map((f) => f.path));
+      if (xmlFiles.length === 0) setSnack({ open: true, message: "No XML file changes found." });
     } catch (e) {
       setSnack({ open: true, message: `Comparison failed: ${e.message}` });
     } finally {
-      setLoading(false);
       setBusy(false);
     }
   };
@@ -471,14 +524,16 @@ function BranchDiffPanel({ token, repo, branchA, branchB, setSnack, busy, setBus
   const openDetail = async (file) => {
     try {
       setBusy(true);
-      const baseText = await githubApi.getFileText(token, repo.full_name, file.filename, branchA);
-      const headText = await githubApi.getFileText(token, repo.full_name, file.filename, branchB);
-      setDetail({
-        path: file.filename,
-        baseText,
-        headText,
-        diffs: diffText(baseText, headText),
-      });
+      const baseRaw = await githubApi.getFileText(token, repo.full_name, file.path, branchA);
+      const headRaw = await githubApi.getFileText(token, repo.full_name, file.path, branchB);
+      const baseText = normalizeXmlText(baseRaw);
+      const headText = normalizeXmlText(headRaw);
+      if (baseText === headText) {
+        setSnack({ open: true, message: "File is identical after normalization." });
+        return;
+      }
+      const diffs = diffText(baseText, headText);
+      setDetail({ path: file.path, diffs, branchA, branchB });
     } catch (e) {
       setSnack({ open: true, message: `Failed to load file: ${e.message}` });
     } finally {
@@ -486,110 +541,66 @@ function BranchDiffPanel({ token, repo, branchA, branchB, setSnack, busy, setBus
     }
   };
 
-  return (
-    <Card sx={{ mt: 3 }}>
-      <CardContent>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Branch → Branch diff (XML)
-          </Typography>
-          <Button
-            variant="contained"
-            startIcon={<CompareIcon />}
-            disabled={!canCompare || loading}
-            onClick={handleCompare}
-          >
-            {loading ? <CircularProgress size={22} /> : "Compare"}
-          </Button>
-        </Box>
-        {loading && <LinearProgress sx={{ mt: 2 }} />}
-
-        <List dense>
-          {changedXml.map((f) => (
-            <ListItem key={f.filename} button onClick={() => openDetail(f)}>
-              <ListItemText primary={f.filename} secondary={`status: ${f.status}, changes: ${f.changes}`} />
-            </ListItem>
-          ))}
-        </List>
-
-        <DiffDialog detail={detail} onClose={() => setDetail(null)} branchA={branchA} branchB={branchB} />
-      </CardContent>
-    </Card>
-  );
-}
-
-function DiffDialog({ detail, onClose, branchA, branchB }) {
-  if (!detail) return null;
-  return (
-    <Dialog open={!!detail} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        Diff: {detail.path}
-        <Typography variant="body2" color="text.secondary">
-          {branchA} → {branchB}
-        </Typography>
-      </DialogTitle>
-      <DialogContent dividers>
-        <pre style={{ whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
-          {detail.diffs.map((d, i) => {
-            const [op, text] = d;
-            const style =
-              op === 1
-                ? { background: "#e8f5e9" }
-                : op === -1
-                ? { background: "#ffebee", textDecoration: "line-through" }
-                : {};
-            return (
-              <span key={i} style={style}>
-                {text}
-              </span>
+  const exportSelected = async () => {
+    const targets = comparison.filter((c) => selected.includes(c.path));
+    if (!targets.length) return setSnack({ open: true, message: "Nothing to export." });
+    setBusy(true);
+    try {
+      const files = await Promise.all(
+        comparison
+          .filter((c) => selected.includes(c.path))
+          .map(async (c) => {
+            // Step 1: get metadata via GitHub API (safe)
+            const meta = await ghGet(
+              `${GITHUB_API}/repos/${repo.full_name}/contents/${encodeURIComponent(c.path)}?ref=${encodeURIComponent(branchB)}`,
+              token
             );
-          })}
-        </pre>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
+
+            // Step 2: decode Base64
+            const text = meta.encoding === "base64"
+              ? atob(meta.content.replace(/\n/g, ""))
+              : (meta.content ?? "");
+
+            return { path: c.path, text };
+          })
+      );
+      downloadAsZip(files, `export_${repo.name}_${branchA}_vs_${branchB}.zip`);
+      setSnack({ open: true, message: `Exported ${files.length} files.` });
+    } catch (e) {
+      setSnack({ open: true, message: `Export failed: ${e.message}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <DiffPanelBase
+      title="Branch → Branch diff (XML)"
+      compareLabel={`Compare ${branchA} ↔ ${branchB}`}
+      canRun={canCompare}
+      visibleFiles={visibleFiles}
+      selected={selected}
+      setSelected={setSelected}
+      onCompare={runCompare}
+      onExport={exportSelected}
+      onOpenDetail={openDetail}
+      detail={detail}
+      setDetail={setDetail}
+    />
   );
 }
 
-// File row (memoized)
-const FileRow = React.memo(function FileRow({ file, selected, toggleSelected, openDetail }) {
-  return (
-    <ListItem key={file.path} disableGutters>
-      <Checkbox
-        checked={selected.includes(file.path)}
-        onClick={(e) => e.stopPropagation()}
-        onChange={() => toggleSelected(file.path)}
-        tabIndex={-1}
-      />
-      <ListItemButton onClick={() => openDetail(file)} sx={{ flex: 1 }}>
-        <ListItemText
-          primary={file.path}
-          secondary={file.status === "modified" ? "modified" : "new file"}
-        />
-      </ListItemButton>
-    </ListItem>
-  );
-});
-
-function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
-  const [zipFile, setZipFile] = useState(null);
+function ZipDiffPanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
   const [zipEntries, setZipEntries] = useState([]);
   const [comparison, setComparison] = useState([]);
-  const [detail, setDetail] = useState(null); // {path, zipText, repoText, diffs}
+  const [detail, setDetail] = useState(null);
   const [selected, setSelected] = useState([]);
   const fileInputRef = useRef(null);
 
   const canRun = token && repo && branchRef && zipEntries.length > 0;
-
   const visibleFiles = useMemo(() => comparison.filter((c) => c.status !== "same"), [comparison]);
 
-  const onPickZip = async (file) => {
-    setZipFile(file);
-    setZipEntries([]);
-    setComparison([]);
-    setSelected([]);
+  const pickZip = async (file) => {
     if (!file) return;
     try {
       setBusy(true);
@@ -608,32 +619,19 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
     setBusy(true);
     try {
       const tree = await githubApi.getTreeRecursive(token, repo.full_name, branchRef);
-      const blobMap = new Map();
-      for (const node of tree.tree || []) {
-        if (node.type === "blob" && /\.xml$/i.test(node.path)) {
-          blobMap.set(normalizePath(node.path), node.sha);
-        }
-      }
+      const blobMap = new Map(tree.tree.filter((t) => /\.xml$/i.test(t.path)).map((n) => [n.path, n.sha]));
 
       const results = await mapLimit(zipEntries, 24, async (e) => {
-        const path = normalizePath(e.path);
+        const path = e.path;
         const repoSha = blobMap.get(path);
-        if (!repoSha) {
-          return { path, status: "added", repoSha: null, zipText: e.text };
-        }
+        if (!repoSha) return { path, status: "added", repoSha: null, zipText: e.text };
         const zipSha = await gitBlobSha(e.text);
-        if (zipSha === repoSha) {
-          return { path, status: "same", repoSha, zipText: e.text };
-        }
+        if (zipSha === repoSha) return { path, status: "same", repoSha, zipText: e.text };
         return { path, status: "modified", repoSha, zipText: e.text };
       });
 
       setComparison(results);
       setSelected(results.filter((c) => c.status !== "same").map((c) => c.path));
-
-      if (results.length === 0) {
-        setSnack({ open: true, message: "No XML files found in ZIP." });
-      }
     } catch (e) {
       setSnack({ open: true, message: `Comparison failed: ${e.message}` });
     } finally {
@@ -642,18 +640,19 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
   };
 
   const openDetail = async (c) => {
-    if (c.status === "same") {
-      setSnack({ open: true, message: "File is identical." });
-      return;
-    }
     try {
       setBusy(true);
-      let repoText = "";
-      if (c.repoSha) {
-        repoText = await githubApi.getBlobRaw(token, repo.full_name, c.repoSha);
+      const repoRaw = c.repoSha
+        ? await githubApi.getBlobRaw(token, repo.full_name, c.repoSha)
+        : "";
+      const repoText = normalizeXmlText(repoRaw);
+      const zipText = normalizeXmlText(c.zipText);
+      if (repoText === zipText) {
+        setSnack({ open: true, message: "File is identical after normalization." });
+        return;
       }
-      const diffs = diffText(repoText, c.zipText);
-      setDetail({ path: c.path, repoText, zipText: c.zipText, diffs });
+      const diffs = diffText(repoText, zipText);
+      setDetail({ path: c.path, diffs, branchA: branchRef, branchB: "ZIP" });
     } catch (e) {
       setSnack({ open: true, message: `Failed to load file details: ${e.message}` });
     } finally {
@@ -661,17 +660,11 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
     }
   };
 
-  const toggleSelected = (path) => {
-    setSelected((prev) =>
-      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
-    );
-  };
-
   const exportSelected = () => {
     const files = comparison
       .filter((c) => selected.includes(c.path))
       .map((c) => ({ path: c.path, text: c.zipText }));
-    if (files.length === 0) {
+    if (!files.length) {
       setSnack({ open: true, message: "Nothing to export." });
       return;
     }
@@ -679,103 +672,37 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
   };
 
   return (
-    <Card sx={{ mt: 3, display: "flex", flexDirection: "column", height: "100%" }}>
-      <CardContent
-        sx={{
-          flex: "1 1 auto",
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0,
-        }}
-      >
-        {/* Header */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            ZIP → Repo diff (XML)
-          </Typography>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".zip"
-            style={{ display: "none" }}
-            onChange={(e) => onPickZip(e.target.files?.[0] || null)}
-          />
-          <Button
-            variant="outlined"
-            startIcon={<UploadIcon />}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Upload ZIP
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<CompareIcon />}
-            disabled={!canRun}
-            onClick={runCompare}
-          >
-            Compare with {branchRef}
-          </Button>
-          <Button variant="outlined" startIcon={<DownloadIcon />} onClick={exportSelected}>
-            Export selected (ZIP)
-          </Button>
-        </Box>
-
-        {/* Selection controls */}
-        {visibleFiles.length > 0 && (
-          <Box sx={{ display: "flex", gap: 2, mb: 1, mt: 2, alignItems: "center" }}>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => setSelected(visibleFiles.map((c) => c.path))}
-            >
-              Select all
-            </Button>
-            <Button size="small" variant="outlined" onClick={() => setSelected([])}>
-              Deselect all
-            </Button>
-            <Typography variant="body2" sx={{ ml: "auto" }}>
-              New: {visibleFiles.filter((c) => c.status === "added").length} | Modified:{" "}
-              {visibleFiles.filter((c) => c.status === "modified").length} | Selected:{" "}
-              {selected.length}
-            </Typography>
-          </Box>
-        )}
-
-        {/* Virtualized list */}
-        {visibleFiles.length > 0 && (
-          <Box
-            sx={{
-              flex: "1 1 auto",
-              minHeight: 0,
-              height: "calc(100vh - 400px)",
-              border: "1px solid rgba(0,0,0,0.1)",
-              borderRadius: 1,
-            }}
-          >
-            <Virtuoso
-              totalCount={visibleFiles.length}
-              itemContent={(index) => {
-                const c = visibleFiles[index];
-                return (
-                  <FileRow
-                    file={c}
-                    selected={selected}
-                    toggleSelected={toggleSelected}
-                    openDetail={openDetail}
-                  />
-                );
-              }}
-            />
-          </Box>
-        )}
-      </CardContent>
-      <DiffDialog
-        detail={detail}
-        onClose={() => setDetail(null)}
-        branchA={branchRef}
-        branchB="ZIP"
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".zip"
+        style={{ display: "none" }}
+        onChange={(e) => pickZip(e.target.files?.[0])}
       />
-    </Card>
+      <Button
+        variant="outlined"
+        startIcon={<UploadIcon />}
+        onClick={() => fileInputRef.current?.click()}
+        sx={{ mb: 2 }}
+      >
+        Upload ZIP
+      </Button>
+
+      <DiffPanelBase
+        title="ZIP → Repo diff (XML)"
+        compareLabel={`Compare with ${branchRef}`}
+        canRun={canRun}
+        visibleFiles={visibleFiles}
+        selected={selected}
+        setSelected={setSelected}
+        onCompare={runCompare}
+        onExport={exportSelected}
+        onOpenDetail={openDetail}
+        detail={detail}
+        setDetail={setDetail}
+      />
+    </>
   );
 }
 
@@ -844,7 +771,7 @@ export default function App() {
             )}
 
             {tab === 1 && (
-              <ZipComparePanel
+              <ZipDiffPanel
                 token={auth.token}
                 repo={repo}
                 branchRef={branchA || branchB}
