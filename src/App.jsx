@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Container,
@@ -19,6 +20,7 @@ import {
   LinearProgress,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   MenuItem,
   Select,
@@ -37,6 +39,7 @@ import MergeIcon from "@mui/icons-material/MergeType";
 import AddIcon from "@mui/icons-material/Add";
 import JSZip from "jszip";
 import { diff_match_patch } from "diff-match-patch";
+import { Virtuoso } from "react-virtuoso";
 
 /*************************************
  * GitHub GUI – MVP (per spec)
@@ -95,6 +98,18 @@ async function ghPut(url, token, body) {
 }
 
 const githubApi = {
+  async getTreeRecursive(token, fullName, branch) {
+    const url = `${GITHUB_API}/repos/${fullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+    return ghGet(url, token);
+  },
+  async getBlobRaw(token, fullName, sha) {
+    const url = `${GITHUB_API}/repos/${fullName}/git/blobs/${sha}`;
+    const res = await fetch(url, {
+      headers: { ...withAuthHeaders(token), Accept: "application/vnd.github.raw" }
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.text();
+  },
   async getViewer(token) {
     return ghGet(`${GITHUB_API}/user`, token);
   },
@@ -142,6 +157,37 @@ const githubApi = {
 
 /****************** Utilities ******************/
 const dmp = new diff_match_patch();
+
+// Compute Git blob SHA-1 for a given UTF-8 text
+// Algoritmus: sha1("blob <length>\\0" + content)
+async function gitBlobSha(text) {
+  const enc = new TextEncoder();
+  const bytes = enc.encode(text ?? "");
+  const header = enc.encode(`blob ${bytes.length}\u0000`); // \u0000 = nul byte
+  const buf = new Uint8Array(header.length + bytes.length);
+  buf.set(header, 0);
+  buf.set(bytes, header.length);
+  const hash = await crypto.subtle.digest("SHA-1", buf);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Simple concurrency limiter for async maps
+async function mapLimit(items, limit, mapper) {
+  const ret = [];
+  let i = 0;
+  const runners = new Array(Math.min(limit, items.length))
+    .fill(0)
+    .map(async () => {
+      while (i < items.length) {
+        const idx = i++;
+        ret[idx] = await mapper(items[idx], idx);
+      }
+    });
+  await Promise.all(runners);
+  return ret;
+}
 
 function onlyXmlFiles(files) {
   return files?.filter((f) => f.filename?.toLowerCase().endsWith(".xml")) || [];
@@ -534,18 +580,46 @@ function DiffDialog({ detail, onClose, branchA, branchB }) {
   );
 }
 
+// Memoizovaná komponenta pro jeden řádek se souborem
+const FileRow = React.memo(function FileRow({ file, selected, toggleSelected, openDetail }) {
+  return (
+    <ListItem key={file.path} disableGutters>
+      <Checkbox
+        checked={selected.includes(file.path)}
+        onClick={(e) => e.stopPropagation()}
+        onChange={() => toggleSelected(file.path)}
+        tabIndex={-1}
+      />
+      <ListItemButton onClick={() => openDetail(file)} sx={{ flex: 1 }}>
+        <ListItemText
+          primary={file.path}
+          secondary={file.status === "modified" ? "změněno" : "nový soubor"}
+        />
+      </ListItemButton>
+    </ListItem>
+  );
+});
+
 function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
   const [zipFile, setZipFile] = useState(null);
   const [zipEntries, setZipEntries] = useState([]);
-  const [comparison, setComparison] = useState([]); // [{path, status: 'added|removed|modified|same', diffs, repoText, zipText}]
+  const [comparison, setComparison] = useState([]); 
+  const [detail, setDetail] = useState(null); // {path, zipText, repoText, diffs}
+  const [selected, setSelected] = useState([]); // pole stringů místo Set
   const fileInputRef = useRef(null);
 
   const canRun = token && repo && branchRef && zipEntries.length > 0;
+
+  const visibleFiles = useMemo(
+    () => comparison.filter((c) => c.status !== "same"),
+    [comparison]
+  );
 
   const onPickZip = async (file) => {
     setZipFile(file);
     setZipEntries([]);
     setComparison([]);
+    setSelected([]);
     if (!file) return;
     try {
       setBusy(true);
@@ -563,28 +637,34 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
     if (!canRun) return;
     setBusy(true);
     try {
-      // Build path→text from ZIP
-      const zipMap = new Map(zipEntries.map((e) => [normalizePath(e.path), e.text]));
-      // List candidate paths = union of zip paths and repo XML paths (heuristic: use zip paths)
-      const results = [];
-      for (const [rawPath, zipText] of zipMap.entries()) {
-        const path = rawPath; // keep as-is
-        let repoText = "";
-        let status = "added";
-        try {
-          repoText = await githubApi.getFileText(token, repo.full_name, path, branchRef);
-          status = zipText === repoText ? "same" : "modified";
-        } catch (_) {
-          // file likely doesn't exist in repo → added
-          status = "added";
+      const tree = await githubApi.getTreeRecursive(token, repo.full_name, branchRef);
+      const blobMap = new Map();
+      for (const node of tree.tree || []) {
+        if (node.type === "blob" && /\.xml$/i.test(node.path)) {
+          blobMap.set(normalizePath(node.path), node.sha);
         }
-        const diffs = status === "modified" ? diffText(repoText, zipText) : [];
-        results.push({ path, status, diffs, repoText, zipText });
       }
-      // Optionally, detect removed files (present in repo but not in ZIP)
-      // Skipped for MVP to keep API calls bounded.
+
+      const results = await mapLimit(zipEntries, 24, async (e) => {
+        const path = normalizePath(e.path);
+        const repoSha = blobMap.get(path);
+        if (!repoSha) {
+          return { path, status: "added", repoSha: null, zipText: e.text };
+        }
+        const zipSha = await gitBlobSha(e.text);
+        if (zipSha === repoSha) {
+          return { path, status: "same", repoSha, zipText: e.text };
+        }
+        return { path, status: "modified", repoSha, zipText: e.text };
+      });
+
       setComparison(results);
-      if (results.length === 0) setSnack({ open: true, message: "Žádné XML v ZIPu." });
+      // automaticky vybrat jen added/modified
+      setSelected(results.filter(c => c.status !== "same").map(c => c.path));
+
+      if (results.length === 0) {
+        setSnack({ open: true, message: "Žádné XML v ZIPu." });
+      }
     } catch (e) {
       setSnack({ open: true, message: `Porovnání selhalo: ${e.message}` });
     } finally {
@@ -592,9 +672,35 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
     }
   };
 
+  const openDetail = async (c) => {
+    if (c.status === "same") {
+      setSnack({ open: true, message: "Soubor je beze změny." });
+      return;
+    }
+    try {
+      setBusy(true);
+      let repoText = "";
+      if (c.repoSha) {
+        repoText = await githubApi.getBlobRaw(token, repo.full_name, c.repoSha);
+      }
+      const diffs = diffText(repoText, c.zipText);
+      setDetail({ path: c.path, repoText, zipText: c.zipText, diffs });
+    } catch (e) {
+      setSnack({ open: true, message: `Načtení detailu selhalo: ${e.message}` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleSelected = (path) => {
+    setSelected((prev) =>
+      prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]
+    );
+  };
+
   const exportSelected = () => {
     const files = comparison
-      .filter((c) => c.status === "modified" || c.status === "added")
+      .filter((c) => selected.includes(c.path))
       .map((c) => ({ path: c.path, text: c.zipText }));
     if (files.length === 0) {
       setSnack({ open: true, message: "Není co exportovat." });
@@ -604,8 +710,9 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
   };
 
   return (
-    <Card sx={{ mt: 3 }}>
-      <CardContent>
+    <Card sx={{ mt: 3, display: "flex", flexDirection: "column", height: "100%" }}>
+      <CardContent sx={{ flex: "1 1 auto", display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {/* Header toolbar */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             ZIP → Repo diff (XML)
@@ -628,23 +735,60 @@ function ZipComparePanel({ token, repo, branchRef, setSnack, busy, setBusy }) {
           </Button>
         </Box>
 
-        <List dense>
-          {comparison.map((c) => (
-            <ListItem key={c.path}>
-              <ListItemText
-                primary={c.path}
-                secondary={
-                  c.status === "same"
-                    ? "beze změny"
-                    : c.status === "modified"
-                    ? "změněno"
-                    : "nový soubor"
-                }
-              />
-            </ListItem>
-          ))}
-        </List>
+        {/* Výběrové ovladače */}
+        {visibleFiles.length > 0 && (
+          <Box sx={{ display: "flex", gap: 2, mb: 1, mt: 2, alignItems: "center" }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => setSelected(visibleFiles.map((c) => c.path))}
+            >
+              Vybrat vše
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => setSelected([])}
+            >
+              Zrušit vše
+            </Button>
+            <Typography variant="body2" sx={{ ml: "auto" }}>
+              Nových: {visibleFiles.filter(c => c.status === "added").length} | 
+              Změněných: {visibleFiles.filter(c => c.status === "modified").length} | 
+              Vybráno: {selected.length}
+            </Typography>
+          </Box>
+        )}
+
+        {/* Virtuoso – virtualizovaný seznam */}
+        {visibleFiles.length > 0 && (
+          <Box
+            sx={{
+              flex: "1 1 auto",
+              minHeight: 0,
+              height: "calc(100vh - 400px)", // dynamicky podle viewportu
+              border: "1px solid rgba(0,0,0,0.1)",
+              borderRadius: 1,
+            }}
+          >
+            <Virtuoso
+              totalCount={visibleFiles.length}
+              itemContent={(index) => {
+                const c = visibleFiles[index];
+                return (
+                  <FileRow
+                    file={c}
+                    selected={selected}
+                    toggleSelected={toggleSelected}
+                    openDetail={openDetail}
+                  />
+                );
+              }}
+            />
+          </Box>
+        )}
       </CardContent>
+      <DiffDialog detail={detail} onClose={() => setDetail(null)} branchA={branchRef} branchB="ZIP" />
     </Card>
   );
 }
