@@ -40,6 +40,7 @@ import JSZip from "jszip";
 import { diff_match_patch } from "diff-match-patch";
 import { Virtuoso } from "react-virtuoso";
 import DiffPanelBase from "./components/DiffPanelBase";
+import AuthPanel from "./components/AuthPanel";
 
 /*************************************
  * GitHub GUI – MVP (per spec)
@@ -293,51 +294,6 @@ function Header({ user, onLogout }) {
         )}
       </Toolbar>
     </AppBar>
-  );
-}
-
-function AuthPanel({ onAuthenticated, setSnack }) {
-  const [token, setToken] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const handleLogin = async () => {
-    if (!token) return;
-    setLoading(true);
-    try {
-      const user = await githubApi.getViewer(token);
-      onAuthenticated({ token, user });
-    } catch (e) {
-      setSnack({ open: true, message: `Login failed: ${e.message}` });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Card sx={{ mt: 4 }}>
-      <CardContent>
-        <Typography variant="h6" gutterBottom>
-          Login (PAT)
-        </Typography>
-        <Typography variant="body2" color="text.secondary" gutterBottom>
-          Enter a Personal Access Token with <code>repo</code> permission. The token is
-          only stored in memory and never saved.
-        </Typography>
-        <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-          <TextField
-            fullWidth
-            type="password"
-            label="GitHub PAT"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="ghp_..."
-          />
-          <Button variant="contained" onClick={handleLogin} disabled={loading}>
-            {loading ? <CircularProgress size={22} /> : "Login"}
-          </Button>
-        </Box>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -793,3 +749,5 @@ export default function App() {
     </Box>
   );
 }
+
+export { githubApi };
