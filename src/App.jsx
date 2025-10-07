@@ -11,6 +11,7 @@ import StatusBar from "./components/layout/StatusBar";
 import BranchDiffPanel from "./components/panels/BranchDiffPanel";
 import ZipDiffPanel from "./components/panels/ZipDiffPanel";
 import AuthPanel from "./components/auth/AuthPanel";
+import BranchSelectorBar from "./components/panels/BranchSelectorBar";
 
 export default function App() {
   const { auth, logout } = useGitHubOAuth();
@@ -126,33 +127,31 @@ export default function App() {
           {/* 🔹 MAIN LAYOUT */}
           <Box display="flex" flexGrow={1}>
             <Sidebar
-              auth={auth}
-              repo={repo}
-              branchA={branchA}
-              setBranchA={setBranchA}
-              branchB={branchB}
-              setBranchB={setBranchB}
-              busy={busy}
-              setBusy={setBusy}
+              tab={tab}
+              setTab={setTab}
+              onNewBranch={() => handleCreateBranch()}
               sidebarOpen={sidebarOpen}
-              branches={branches}
-              setBranches={setBranches}
-              onCreateBranch={handleCreateBranch}
-              newBranchName={newBranchName}
-              setNewBranchName={setNewBranchName}
-              fromBranch={fromBranch}
-              setFromBranch={setFromBranch}
             />
 
             <Box flexGrow={1} p={2} overflow="auto">
               {tab === 0 && (
-                <BranchDiffPanel
-                  token={auth?.token}
-                  repo={repo}
-                  branchA={branchA}
-                  branchB={branchB}
-                  setBusy={setBusy}
-                />
+                <>
+                  <BranchSelectorBar
+                    token={auth?.token}
+                    repo={repo}
+                    branchA={branchA}
+                    setBranchA={setBranchA}
+                    branchB={branchB}
+                    setBranchB={setBranchB}
+                  />
+                  <BranchDiffPanel
+                    token={auth?.token}
+                    repo={repo}
+                    branchA={branchA}
+                    branchB={branchB}
+                    setBusy={setBusy}
+                  />
+                </>
               )}
               {tab === 1 && (
                 <ZipDiffPanel
