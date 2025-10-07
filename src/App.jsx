@@ -13,6 +13,7 @@ import ZipDiffPanel from "./components/panels/ZipDiffPanel";
 import AuthPanel from "./components/auth/AuthPanel";
 import BranchSelectorBar from "./components/panels/BranchSelectorBar";
 import ZipSelectorBar from "./components/panels/ZipSelectorBar";
+import NewBranchBar from "./components/panels/NewBranchBar";
 
 export default function App() {
   const { auth, logout } = useGitHubOAuth();
@@ -64,37 +65,6 @@ export default function App() {
     setZipFile(null);
   }, [repo]);
 
-  // 🧩 Create new branch
-  async function handleCreateBranch() {
-    if (!repo || !auth?.token || !newBranchName || !fromBranch) {
-      toast.error("Please fill in all branch details.");
-      return;
-    }
-
-    setBusy(true);
-    const loadingToast = toast.loading("Creating new branch...");
-    try {
-      await githubApi.createBranch(
-        auth.token,
-        repo.full_name,
-        newBranchName,
-        fromBranch
-      );
-
-      const updated = await githubApi.listBranches(auth.token, repo.full_name);
-      setBranches(updated);
-      setNewBranchName("");
-
-      toast.success(`Branch "${newBranchName}" created successfully!`);
-    } catch (err) {
-      console.error("Error creating branch:", err);
-      toast.error(`Failed to create branch: ${err.message}`);
-    } finally {
-      setBusy(false);
-      toast.dismiss(loadingToast);
-    }
-  }
-
   return (
     <ThemeProvider theme={muiTheme(darkMode)}>
       <CssBaseline />
@@ -145,29 +115,15 @@ export default function App() {
             <Sidebar
               tab={tab}
               setTab={setTab}
-              onNewBranch={() => handleCreateBranch()}
               sidebarOpen={sidebarOpen}
             />
 
             <Box flexGrow={1} p={2} overflow="auto">
               {tab === 0 && (
-                <>
-                  <BranchSelectorBar
-                    token={auth?.token}
-                    repo={repo}
-                    branchA={branchA}
-                    setBranchA={setBranchA}
-                    branchB={branchB}
-                    setBranchB={setBranchB}
-                  />
-                  <BranchDiffPanel
-                    token={auth?.token}
-                    repo={repo}
-                    branchA={branchA}
-                    branchB={branchB}
-                    setBusy={setBusy}
-                  />
-                </>
+                <NewBranchBar
+                  token={auth?.token}
+                  repo={repo}
+                />
               )}
               {tab === 1 && (
                 <>
@@ -184,6 +140,25 @@ export default function App() {
                     repo={repo}
                     branchRef={zipBranch}
                     zipFile={zipFile} // ✅ pass file object down
+                    setBusy={setBusy}
+                  />
+                </>
+              )}
+              {tab === 2 && (
+                <>
+                  <BranchSelectorBar
+                    token={auth?.token}
+                    repo={repo}
+                    branchA={branchA}
+                    setBranchA={setBranchA}
+                    branchB={branchB}
+                    setBranchB={setBranchB}
+                  />
+                  <BranchDiffPanel
+                    token={auth?.token}
+                    repo={repo}
+                    branchA={branchA}
+                    branchB={branchB}
                     setBusy={setBusy}
                   />
                 </>

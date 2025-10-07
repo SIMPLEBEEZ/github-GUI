@@ -11,12 +11,7 @@ import AddIcon from "@mui/icons-material/Add";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import ArchiveIcon from "@mui/icons-material/Archive";
 
-export default function Sidebar({
-  tab,
-  setTab,
-  onNewBranch,
-  sidebarOpen,
-}) {
+export default function Sidebar({ tab, setTab, sidebarOpen }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -24,21 +19,12 @@ export default function Sidebar({
     <Box p={2} width={260}>
       <Stack spacing={2}>
         <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          fullWidth
-          onClick={onNewBranch}
-        >
-          New Branch
-        </Button>
-
-        <Button
           variant={tab === 0 ? "contained" : "outlined"}
-          startIcon={<CompareArrowsIcon />}
+          startIcon={<AddIcon />}
           fullWidth
           onClick={() => setTab(0)}
         >
-          Branch → Branch
+          New Branch
         </Button>
 
         <Button
@@ -48,6 +34,15 @@ export default function Sidebar({
           onClick={() => setTab(1)}
         >
           ZIP → Branch
+        </Button>
+
+        <Button
+          variant={tab === 2 ? "contained" : "outlined"}
+          startIcon={<CompareArrowsIcon />}
+          fullWidth
+          onClick={() => setTab(2)}
+        >
+          Branch → Branch
         </Button>
       </Stack>
     </Box>
@@ -80,9 +75,10 @@ export default function Sidebar({
         }`,
         mt: "64px",
         backgroundColor: theme.palette.background.default,
-        boxShadow: theme.palette.mode === "dark"
-          ? "0 0 10px rgba(255,255,255,0.05)"
-          : "0 0 8px rgba(0,0,0,0.08)",
+        boxShadow:
+          theme.palette.mode === "dark"
+            ? "0 0 10px rgba(255,255,255,0.05)"
+            : "0 0 8px rgba(0,0,0,0.08)",
       }}
     >
       {sidebarContent}
