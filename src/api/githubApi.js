@@ -40,8 +40,11 @@ async function ghPut(url, token, body) {
 }
 
 export const githubApi = {
+  // 🧩 FILES ----------------------------------------------------------
   async getTreeRecursive(token, fullName, branch) {
-    const url = `${GITHUB_API}/repos/${fullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+    const url = `${GITHUB_API}/repos/${fullName}/git/trees/${encodeURIComponent(
+      branch
+    )}?recursive=1`;
     return ghGet(url, token);
   },
 
@@ -55,6 +58,17 @@ export const githubApi = {
       : data.content || "";
   },
 
+  async getFileText(token, fullName, path, ref) {
+    const url = `${GITHUB_API}/repos/${fullName}/contents/${encodeURIComponent(
+      path
+    )}?ref=${encodeURIComponent(ref)}`;
+    const json = await ghGet(url, token);
+    return json.encoding === "base64"
+      ? atob(json.content.replace(/\n/g, ""))
+      : json.content || "";
+  },
+
+  // 🧩 USER & REPOS ---------------------------------------------------
   async getViewer(token) {
     return ghGet(`${GITHUB_API}/user`, token);
   },
@@ -64,17 +78,21 @@ export const githubApi = {
     return ghGet(url, token);
   },
 
+  // 🧩 BRANCHES -------------------------------------------------------
   async listBranches(token, fullName) {
     const url = `${GITHUB_API}/repos/${fullName}/branches?per_page=100`;
     return ghGet(url, token);
   },
 
   async getBranch(token, fullName, branch) {
-    const url = `${GITHUB_API}/repos/${fullName}/git/ref/heads/${encodeURIComponent(branch)}`;
+    const url = `${GITHUB_API}/repos/${fullName}/git/refs/heads/${encodeURIComponent(
+      branch
+    )}`;
     return ghGet(url, token);
   },
 
-  async createBranchFrom(token, fullName, newBranch, fromBranch) {
+  // 🔹 Unified method for branch creation (used by App.jsx)
+  async createBranch(token, fullName, newBranch, fromBranch) {
     const ref = await this.getBranch(token, fullName, fromBranch);
     const sha = ref.object.sha;
     const url = `${GITHUB_API}/repos/${fullName}/git/refs`;
@@ -82,15 +100,9 @@ export const githubApi = {
   },
 
   async compareBranches(token, fullName, base, head) {
-    const url = `${GITHUB_API}/repos/${fullName}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=300`;
+    const url = `${GITHUB_API}/repos/${fullName}/compare/${encodeURIComponent(
+      base
+    )}...${encodeURIComponent(head)}?per_page=300`;
     return ghGet(url, token);
-  },
-
-  async getFileText(token, fullName, path, ref) {
-    const url = `${GITHUB_API}/repos/${fullName}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(ref)}`;
-    const json = await ghGet(url, token);
-    return json.encoding === "base64"
-      ? atob(json.content.replace(/\n/g, ""))
-      : json.content || "";
   },
 };

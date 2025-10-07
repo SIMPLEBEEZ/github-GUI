@@ -1,12 +1,11 @@
 import React from "react";
-import { Drawer, Box, useMediaQuery } from "@mui/material";
+import { Drawer, Box, Typography, Divider, Button, TextField, FormControl, InputLabel, Select, MenuItem, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import RepoBranchPicker from "../RepoBranchPicker";
+import AddIcon from "@mui/icons-material/Add";
 
 export default function Sidebar({
   auth,
   repo,
-  setRepo,
   branchA,
   setBranchA,
   branchB,
@@ -14,26 +13,121 @@ export default function Sidebar({
   busy,
   setBusy,
   sidebarOpen,
+  branches,
+  setBranches,
+  onCreateBranch,
+  newBranchName,
+  setNewBranchName,
+  fromBranch,
+  setFromBranch,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
+  // ✅ Sidebar UI (only branch selection and creation)
   const sidebarContent = (
     <Box width={260} p={2}>
-      <RepoBranchPicker
-        token={auth?.token}
-        repo={repo}
-        setRepo={setRepo}
-        branchA={branchA}
-        setBranchA={setBranchA}
-        branchB={branchB}
-        setBranchB={setBranchB}
-        busy={busy}
-        setBusy={setBusy}
-      />
+      {!repo ? (
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ mt: 1, fontStyle: "italic" }}
+        >
+          No repository selected.
+        </Typography>
+      ) : (
+        <>
+          {/* 🔹 Branch selection */}
+          <Typography
+            variant="subtitle1"
+            sx={{ mb: 1, fontWeight: 600, color: "text.primary" }}
+          >
+            Branches ({repo.name})
+          </Typography>
+
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>Branch A (base)</InputLabel>
+            <Select
+              value={branchA}
+              label="Branch A (base)"
+              onChange={(e) => setBranchA(e.target.value)}
+              disabled={!branches?.length}
+            >
+              {branches?.map((b) => (
+                <MenuItem key={b.name} value={b.name}>
+                  {b.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>Branch B (head)</InputLabel>
+            <Select
+              value={branchB}
+              label="Branch B (head)"
+              onChange={(e) => setBranchB(e.target.value)}
+              disabled={!branches?.length}
+            >
+              {branches?.map((b) => (
+                <MenuItem key={b.name} value={b.name}>
+                  {b.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Divider sx={{ my: 2 }} />
+
+          {/* 🔹 Create new branch */}
+          <Typography
+            variant="subtitle1"
+            sx={{ mb: 1, fontWeight: 600, color: "text.primary" }}
+          >
+            Create new branch
+          </Typography>
+
+          <TextField
+            size="small"
+            label="New branch name"
+            fullWidth
+            sx={{ mb: 2 }}
+            value={newBranchName}
+            onChange={(e) => setNewBranchName(e.target.value)}
+          />
+
+          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+            <InputLabel>From branch</InputLabel>
+            <Select
+              value={fromBranch}
+              label="From branch"
+              onChange={(e) => setFromBranch(e.target.value)}
+              disabled={!branches?.length}
+            >
+              {branches?.map((b) => (
+                <MenuItem key={b.name} value={b.name}>
+                  {b.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<AddIcon />}
+            fullWidth
+            onClick={onCreateBranch}
+            disabled={!newBranchName || !fromBranch || busy}
+          >
+            Create
+          </Button>
+        </>
+      )}
     </Box>
   );
 
+  // ✅ Drawer layout for mobile / desktop
   return isMobile ? (
     <Drawer
       anchor="left"
@@ -59,9 +153,8 @@ export default function Sidebar({
           theme.palette.mode === "dark" ? "#30363d" : "#d0d7de"
         }`,
         mt: "64px",
-        boxShadow: theme.palette.mode === "dark"
-          ? "0 0 10px rgba(255,255,255,0.05)"
-          : "0 0 8px rgba(0,0,0,0.08)",
+        backgroundColor: theme.palette.background.default,
+        transition: "background-color 0.3s ease, border-color 0.3s ease",
       }}
     >
       {sidebarContent}

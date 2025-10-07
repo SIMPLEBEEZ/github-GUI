@@ -3,6 +3,7 @@ import { Box, CssBaseline, ThemeProvider } from "@mui/material";
 import { Toaster } from "react-hot-toast";
 import { useGitHubOAuth } from "./hooks/useGitHubOAuth";
 import { muiTheme } from "./theme/muiTheme";
+import { githubApi } from "./api/githubApi";
 import TopBar from "./components/layout/TopBar";
 import TabsBar from "./components/layout/TabsBar";
 import Sidebar from "./components/layout/Sidebar";
@@ -20,7 +21,7 @@ export default function App() {
   const [tab, setTab] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // 🌙 Persistent dark mode (stored in localStorage)
+  // 🌙 Persistent dark mode
   const [darkMode, setDarkMode] = useState(() => {
     const stored = localStorage.getItem("themeMode");
     if (stored === "dark") return true;
@@ -28,10 +29,54 @@ export default function App() {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
-  // 💾 Save theme preference
   useEffect(() => {
     localStorage.setItem("themeMode", darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  // 🧩 NEW: Branch-related state
+  const [branches, setBranches] = useState([]);
+  const [newBranchName, setNewBranchName] = useState("");
+  const [fromBranch, setFromBranch] = useState("");
+
+  // 🧩 NEW: Load branches when repo changes
+  useEffect(() => {
+    if (!repo || !auth?.token) return;
+    githubApi
+      .listBranches(auth.token, repo.full_name)
+      .then(setBranches)
+      .catch((err) => console.error("Error loading branches:", err));
+  }, [repo, auth]);
+
+  // 🧩 NEW: Create new branch
+  async function handleCreateBranch() {
+    if (!repo || !auth?.token || !newBranchName || !fromBranch) {
+      toast.error("Please fill in all branch details.");
+      return;
+    }
+
+    setBusy(true);
+    const loadingToast = toast.loading("Creating new branch...");
+    try {
+      await githubApi.createBranch(
+        auth.token,
+        repo.full_name,
+        newBranchName,
+        fromBranch
+      );
+
+      const updated = await githubApi.listBranches(auth.token, repo.full_name);
+      setBranches(updated);
+      setNewBranchName("");
+
+      toast.success(`Branch "${newBranchName}" created successfully!`);
+    } catch (err) {
+      console.error("Error creating branch:", err);
+      toast.error(`Failed to create branch: ${err.message}`);
+    } finally {
+      setBusy(false);
+      toast.dismiss(loadingToast);
+    }
+  }
 
   return (
     <ThemeProvider theme={muiTheme(darkMode)}>
@@ -65,11 +110,14 @@ export default function App() {
         >
           {/* 🔹 TOP BAR */}
           <TopBar
+            auth={auth}
             darkMode={darkMode}
             setDarkMode={setDarkMode}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             busy={busy}
             onLogout={logout}
+            repo={repo}
+            setRepo={setRepo}
           />
 
           {/* 🔹 TABS */}
@@ -80,7 +128,6 @@ export default function App() {
             <Sidebar
               auth={auth}
               repo={repo}
-              setRepo={setRepo}
               branchA={branchA}
               setBranchA={setBranchA}
               branchB={branchB}
@@ -88,6 +135,13 @@ export default function App() {
               busy={busy}
               setBusy={setBusy}
               sidebarOpen={sidebarOpen}
+              branches={branches}
+              setBranches={setBranches}
+              onCreateBranch={handleCreateBranch}
+              newBranchName={newBranchName}
+              setNewBranchName={setNewBranchName}
+              fromBranch={fromBranch}
+              setFromBranch={setFromBranch}
             />
 
             <Box flexGrow={1} p={2} overflow="auto">
@@ -122,7 +176,40 @@ export default function App() {
       )}
 
       {/* 🔹 TOAST NOTIFICATIONS */}
-      <Toaster position="top-right" />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: darkMode ? "#161b22" : "#ffffff",
+            color: darkMode ? "#f0f6fc" : "#24292f",
+            border: `1px solid ${darkMode ? "#30363d" : "#d0d7de"}`,
+            boxShadow: darkMode
+              ? "0 4px 12px rgba(255,255,255,0.05)"
+              : "0 4px 12px rgba(0,0,0,0.08)",
+            borderRadius: "6px",
+            fontFamily: "system-ui, sans-serif",
+          },
+          success: {
+            iconTheme: {
+              primary: "#3fb950", // GitHub green
+              secondary: darkMode ? "#161b22" : "#ffffff",
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: "#f85149", // GitHub red
+              secondary: darkMode ? "#161b22" : "#ffffff",
+            },
+          },
+          loading: {
+            iconTheme: {
+              primary: "#58a6ff", // GitHub blue
+              secondary: darkMode ? "#161b22" : "#ffffff",
+            },
+          },
+        }}
+      />
     </ThemeProvider>
   );
 }

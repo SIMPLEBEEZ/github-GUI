@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   AppBar,
   Toolbar,
@@ -6,23 +6,41 @@ import {
   Typography,
   Box,
   Tooltip,
+  Select,
+  MenuItem,
+  FormControl,
   useMediaQuery,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import LogoutIcon from "@mui/icons-material/Logout";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
 import Brightness7Icon from "@mui/icons-material/Brightness7";
+import FolderIcon from "@mui/icons-material/Folder";
 import { useTheme } from "@mui/material/styles";
+import { githubApi } from "../../api/githubApi";
 
 export default function TopBar({
+  auth,
   darkMode,
   setDarkMode,
   onToggleSidebar,
   busy,
   onLogout,
+  repo,
+  setRepo,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const [repos, setRepos] = useState([]);
+
+  // 🧩 Load repositories on login
+  useEffect(() => {
+    if (!auth?.token) return;
+    githubApi
+      .listRepos(auth.token, "private")
+      .then(setRepos)
+      .catch((e) => console.error(e));
+  }, [auth]);
 
   return (
     <AppBar
@@ -56,22 +74,77 @@ export default function TopBar({
               <MenuIcon />
             </IconButton>
           )}
+
           <Typography
             variant="h6"
             sx={{
               fontWeight: 600,
               color:
                 theme.palette.mode === "dark" ? "#c9d1d9" : "#24292f",
+              mr: 2,
             }}
           >
             GitHub GUI – MVP
           </Typography>
+
+          {/* 🔸 Repository Picker */}
+          {auth && (
+            <FormControl
+              size="small"
+              sx={{
+                minWidth: 240,
+                backgroundColor:
+                  theme.palette.mode === "dark" ? "#161b22" : "#ffffff",
+                borderRadius: 1,
+                "& .MuiOutlinedInput-notchedOutline": {
+                  borderColor:
+                    theme.palette.mode === "dark" ? "#30363d" : "#d0d7de",
+                },
+                "&:hover .MuiOutlinedInput-notchedOutline": {
+                  borderColor:
+                    theme.palette.mode === "dark" ? "#58a6ff" : "#0969da",
+                },
+              }}
+            >
+              <Select
+                value={repo?.full_name || ""}
+                displayEmpty
+                onChange={(e) => {
+                  const found = repos.find(
+                    (r) => r.full_name === e.target.value
+                  );
+                  setRepo(found || null);
+                }}
+                renderValue={(selected) =>
+                  selected ? (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <FolderIcon fontSize="small" />
+                      <Typography variant="body2">
+                        {selected}
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Select repository...
+                    </Typography>
+                  )
+                }
+              >
+                {repos.map((r) => (
+                  <MenuItem key={r.id} value={r.full_name}>
+                    {r.full_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
         </Box>
 
         {/* 🔹 RIGHT SIDE */}
         <Box display="flex" alignItems="center" gap={1}>
-          {/* 🌙 / ☀️ Theme Toggle */}
-          <Tooltip title={darkMode ? "Switch to light mode" : "Switch to dark mode"}>
+          <Tooltip
+            title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
             <IconButton
               onClick={() => setDarkMode(!darkMode)}
               sx={{
@@ -99,7 +172,6 @@ export default function TopBar({
             </IconButton>
           </Tooltip>
 
-          {/* 🔹 Logout */}
           <Tooltip title="Log out">
             <IconButton
               color="error"
