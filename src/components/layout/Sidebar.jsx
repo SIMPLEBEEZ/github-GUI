@@ -38,7 +38,7 @@ export default function Sidebar({
           fullWidth
           onClick={() => setTab(0)}
         >
-          Branch ↔ Branch
+          Branch → Branch
         </Button>
 
         <Button
@@ -47,7 +47,7 @@ export default function Sidebar({
           fullWidth
           onClick={() => setTab(1)}
         >
-          ZIP ↔ Repo
+          ZIP → Branch
         </Button>
       </Stack>
     </Box>

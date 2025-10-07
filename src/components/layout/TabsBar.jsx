@@ -31,12 +31,12 @@ export default function TabsBar({ tab, setTab, darkMode }) {
         <Tab
           icon={<CompareArrowsIcon fontSize="small" />}
           iconPosition="start"
-          label="Branch ↔ Branch"
+          label="Branch → Branch"
         />
         <Tab
           icon={<ArchiveIcon fontSize="small" />}
           iconPosition="start"
-          label="ZIP ↔ Repo"
+          label="ZIP → Branch"
         />
       </Tabs>
     </Box>

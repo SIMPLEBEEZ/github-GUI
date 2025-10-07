@@ -107,8 +107,8 @@ export default function BranchDiffPanel({
 
   return (
     <DiffPanelBase
-      title="Branch ↔ Branch diff (XML)"
-      compareLabel={`Compare ${branchA} ↔ ${branchB}`}
+      title="Branch → Branch diff (XML)"
+      compareLabel={`Compare ${branchA} → ${branchB}`}
       canRun={canCompare}
       visibleFiles={visibleFiles}
       selected={selected}

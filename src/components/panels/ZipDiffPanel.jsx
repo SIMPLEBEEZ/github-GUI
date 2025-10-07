@@ -1,8 +1,6 @@
-import React, { useState, useMemo, useRef } from "react";
-import { Button } from "@mui/material";
-import UploadIcon from "@mui/icons-material/Upload";
-import DiffPanelBase from "../DiffPanelBase";
+import React, { useState, useMemo } from "react";
 import { githubApi } from "../../api/githubApi";
+import DiffPanelBase from "../DiffPanelBase";
 import { fileListFromZip, downloadAsZip } from "../../utils/zipUtils";
 import { diffText, normalizeXmlText, gitBlobSha } from "../../utils/diffUtils";
 import { mapLimit } from "../../utils/commonUtils";
@@ -13,12 +11,12 @@ export default function ZipDiffPanel({
   branchRef,
   setBusy,
   setSnack,
+  zipFile, // ✅ we assume the uploaded ZIP is passed here
 }) {
   const [zipEntries, setZipEntries] = useState([]);
   const [comparison, setComparison] = useState([]);
   const [detail, setDetail] = useState(null);
   const [selected, setSelected] = useState([]);
-  const fileInputRef = useRef(null);
 
   const canRun = token && repo && branchRef && zipEntries.length > 0;
   const visibleFiles = useMemo(
@@ -26,19 +24,26 @@ export default function ZipDiffPanel({
     [comparison]
   );
 
-  const pickZip = async (file) => {
-    if (!file) return;
-    try {
-      setBusy(true);
-      const entries = await fileListFromZip(file);
-      setZipEntries(entries);
-      setSnack?.({ open: true, message: `Loaded ${entries.length} XML files from ZIP.` });
-    } catch (e) {
-      setSnack?.({ open: true, message: `ZIP error: ${e.message}` });
-    } finally {
-      setBusy(false);
-    }
-  };
+  // ✅ Handle ZIP parsing when zipFile changes
+  React.useEffect(() => {
+    if (!zipFile) return;
+    const loadZip = async () => {
+      try {
+        setBusy(true);
+        const entries = await fileListFromZip(zipFile);
+        setZipEntries(entries);
+        setSnack?.({
+          open: true,
+          message: `Loaded ${entries.length} XML files from ZIP.`,
+        });
+      } catch (e) {
+        setSnack?.({ open: true, message: `ZIP error: ${e.message}` });
+      } finally {
+        setBusy(false);
+      }
+    };
+    loadZip();
+  }, [zipFile]);
 
   const runCompare = async () => {
     if (!canRun) return;
@@ -100,36 +105,18 @@ export default function ZipDiffPanel({
   };
 
   return (
-    <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".zip"
-        style={{ display: "none" }}
-        onChange={(e) => pickZip(e.target.files?.[0])}
-      />
-      <Button
-        variant="outlined"
-        startIcon={<UploadIcon />}
-        onClick={() => fileInputRef.current?.click()}
-        sx={{ mb: 2 }}
-      >
-        Upload ZIP
-      </Button>
-
-      <DiffPanelBase
-        title="ZIP ↔ Repo diff (XML)"
-        compareLabel={`Compare with ${branchRef}`}
-        canRun={canRun}
-        visibleFiles={visibleFiles}
-        selected={selected}
-        setSelected={setSelected}
-        onCompare={runCompare}
-        onExport={exportSelected}
-        onOpenDetail={openDetail}
-        detail={detail}
-        setDetail={setDetail}
-      />
-    </>
+    <DiffPanelBase
+      title="ZIP → Branch diff (XML)"
+      compareLabel={`Compare with ${branchRef}`}
+      canRun={canRun}
+      visibleFiles={visibleFiles}
+      selected={selected}
+      setSelected={setSelected}
+      onCompare={runCompare}
+      onExport={exportSelected}
+      onOpenDetail={openDetail}
+      detail={detail}
+      setDetail={setDetail}
+    />
   );
 }

@@ -12,6 +12,7 @@ import BranchDiffPanel from "./components/panels/BranchDiffPanel";
 import ZipDiffPanel from "./components/panels/ZipDiffPanel";
 import AuthPanel from "./components/auth/AuthPanel";
 import BranchSelectorBar from "./components/panels/BranchSelectorBar";
+import ZipSelectorBar from "./components/panels/ZipSelectorBar";
 
 export default function App() {
   const { auth, logout } = useGitHubOAuth();
@@ -38,8 +39,13 @@ export default function App() {
   const [branches, setBranches] = useState([]);
   const [newBranchName, setNewBranchName] = useState("");
   const [fromBranch, setFromBranch] = useState("");
+  const [zipBranch, setZipBranch] = useState("");
 
-  // 🧩 NEW: Load branches when repo changes
+  // 🧩 ZIP handling (full file + name)
+  const [zipFile, setZipFile] = useState(null);
+  const zipFileName = zipFile ? zipFile.name : "";
+
+  // 🧩 Load branches when repo changes
   useEffect(() => {
     if (!repo || !auth?.token) return;
     githubApi
@@ -48,7 +54,17 @@ export default function App() {
       .catch((err) => console.error("Error loading branches:", err));
   }, [repo, auth]);
 
-  // 🧩 NEW: Create new branch
+  // 🔹 Reset ZIP branch to default branch
+  useEffect(() => {
+    if (repo?.default_branch) setZipBranch(repo.default_branch);
+  }, [repo]);
+
+  // 🧹 Reset ZIP file when repository changes
+  useEffect(() => {
+    setZipFile(null);
+  }, [repo]);
+
+  // 🧩 Create new branch
   async function handleCreateBranch() {
     if (!repo || !auth?.token || !newBranchName || !fromBranch) {
       toast.error("Please fill in all branch details.");
@@ -154,12 +170,23 @@ export default function App() {
                 </>
               )}
               {tab === 1 && (
-                <ZipDiffPanel
-                  token={auth?.token}
-                  repo={repo}
-                  branchRef={branchA || branchB}
-                  setBusy={setBusy}
-                />
+                <>
+                  <ZipSelectorBar
+                    token={auth?.token}
+                    repo={repo}
+                    zipBranch={zipBranch}
+                    setZipBranch={setZipBranch}
+                    zipFileName={zipFileName}
+                    onZipUpload={(file) => setZipFile(file)} // ✅ full file object
+                  />
+                  <ZipDiffPanel
+                    token={auth?.token}
+                    repo={repo}
+                    branchRef={zipBranch}
+                    zipFile={zipFile} // ✅ pass file object down
+                    setBusy={setBusy}
+                  />
+                </>
               )}
             </Box>
           </Box>
