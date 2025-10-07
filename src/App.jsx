@@ -41,6 +41,8 @@ import { diff_match_patch } from "diff-match-patch";
 import { Virtuoso } from "react-virtuoso";
 import DiffPanelBase from "./components/DiffPanelBase";
 import AuthPanel from "./components/AuthPanel";
+import { Toaster } from "react-hot-toast";
+import { useGitHubOAuth } from "./hooks/useGitHubOAuth";
 
 /*************************************
  * GitHub GUI – MVP (per spec)
@@ -668,7 +670,7 @@ function normalizePath(p) {
 
 /****************** Main App ******************/
 export default function App() {
-  const [auth, setAuth] = useState(null); // {token, user}
+  const { auth, logout } = useGitHubOAuth();
   const [busy, setBusy] = useState(false);
   const [snack, setSnack] = useState({ open: false, message: "" });
 
@@ -678,20 +680,13 @@ export default function App() {
 
   const [tab, setTab] = useState(0);
 
-  const onLogout = () => {
-    setAuth(null);
-    setRepo(null);
-    setBranchA("");
-    setBranchB("");
-  };
-
   return (
     <Box>
-      <Header user={auth?.user} onLogout={onLogout} />
+      <Header user={auth?.user} onLogout={logout} />
       {busy && <LinearProgress />}
       <Container maxWidth="lg" sx={{ py: 3 }}>
         {!auth ? (
-          <AuthPanel onAuthenticated={(a) => setAuth(a)} setSnack={setSnack} />
+          <AuthPanel onAuthenticated={() => {}} setSnack={setSnack} />
         ) : (
           <>
             <RepoBranchPicker
@@ -740,11 +735,22 @@ export default function App() {
         )}
       </Container>
 
-      <Snackbar
-        open={snack.open}
-        autoHideDuration={4000}
-        onClose={() => setSnack((s) => ({ ...s, open: false }))}
-        message={snack.message}
+      {/* Toast notifications */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: "#161b22",
+            color: "#fff",
+            border: "1px solid #30363d",
+          },
+          success: {
+            iconTheme: {
+              primary: "#3fb950",
+              secondary: "#161b22",
+            },
+          },
+        }}
       />
     </Box>
   );

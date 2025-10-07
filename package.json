@@ -16,9 +16,12 @@
     "@mui/icons-material": "^7.3.2",
     "@mui/material": "^7.3.2",
     "diff-match-patch": "^1.0.5",
+    "framer-motion": "^12.23.22",
     "jszip": "^3.10.1",
+    "lucide-react": "^0.545.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-hot-toast": "^2.6.0",
     "react-virtuoso": "^4.14.1",
     "react-window": "^2.2.0"
   },
