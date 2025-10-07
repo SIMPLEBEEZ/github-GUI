@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { Card, CardContent, Typography, Button, Box, CircularProgress } from "@mui/material";
-import { useGitHubOAuth } from "../hooks/useGitHubOAuth";
+import { useGitHubOAuth } from "../../hooks/useGitHubOAuth";
 import GitHubIcon from "@mui/icons-material/GitHub";
 
 export default function AuthPanel({ onAuthenticated, setSnack }) {
