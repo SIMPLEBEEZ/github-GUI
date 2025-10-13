@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { Box, Button, Card, CardContent, Typography } from "@mui/material";
-import { Virtuoso } from "react-virtuoso";
 import CompareIcon from "@mui/icons-material/Compare";
 import DownloadIcon from "@mui/icons-material/Download";
-import { FileRow } from "./FileRow";
 import { DiffDialog } from "./DiffDialog";
+import { buildFileTree } from "../utils/fileTreeUtils";
+import { FileTreeView } from "./FileTreeView";
 
 export default function DiffPanelBase({
   title,
@@ -20,6 +20,7 @@ export default function DiffPanelBase({
   setDetail,
 }) {
   const hasFiles = visibleFiles.length > 0;
+  const fileTree = useMemo(() => buildFileTree(visibleFiles), [visibleFiles]);
 
   const selectAll = () => setSelected(visibleFiles.map((c) => c.path));
   const deselectAll = () => setSelected([]);
@@ -69,36 +70,24 @@ export default function DiffPanelBase({
           </Box>
         )}
 
-        {/* Virtualized list */}
+        {/* Tree structure */}
         {hasFiles && (
           <Box
             sx={{
               flex: "1 1 auto",
               minHeight: 0,
               height: "calc(100vh - 400px)",
+              overflowY: "auto",
               border: "1px solid rgba(0,0,0,0.1)",
               borderRadius: 1,
+              p: 1,
             }}
           >
-            <Virtuoso
-              totalCount={visibleFiles.length}
-              itemContent={(index) => {
-                const c = visibleFiles[index];
-                return (
-                  <FileRow
-                    file={c}
-                    selected={selected}
-                    toggleSelected={(path) =>
-                      setSelected((prev) =>
-                        prev.includes(path)
-                          ? prev.filter((p) => p !== path)
-                          : [...prev, path]
-                      )
-                    }
-                    openDetail={onOpenDetail}
-                  />
-                );
-              }}
+            <FileTreeView
+              tree={fileTree}
+              selected={selected}
+              setSelected={setSelected}
+              onOpenDetail={onOpenDetail}
             />
           </Box>
         )}
