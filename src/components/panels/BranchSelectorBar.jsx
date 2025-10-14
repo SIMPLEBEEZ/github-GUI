@@ -5,10 +5,10 @@ import { githubApi } from "../../api/githubApi";
 export default function BranchSelectorBar({
   token,
   repo,
-  branchA,
-  setBranchA,
-  branchB,
-  setBranchB,
+  branchSource,
+  setBranchSource,
+  branchTarget,
+  setBranchTarget,
 }) {
   const [branches, setBranches] = useState([]);
 
@@ -40,9 +40,9 @@ export default function BranchSelectorBar({
       <FormControl size="small" sx={{ minWidth: 180 }}>
         <InputLabel>Source branch</InputLabel>
         <Select
-          value={branchA || ""}
+          value={branchSource || ""}
           label="Source branch"
-          onChange={(e) => setBranchA(e.target.value)}
+          onChange={(e) => setBranchSource(e.target.value)}
         >
           {branches.map((b) => (
             <MenuItem key={b} value={b}>
@@ -57,9 +57,9 @@ export default function BranchSelectorBar({
       <FormControl size="small" sx={{ minWidth: 180 }}>
         <InputLabel>Target branch</InputLabel>
         <Select
-          value={branchB || ""}
+          value={branchTarget || ""}
           label="Target branch"
-          onChange={(e) => setBranchB(e.target.value)}
+          onChange={(e) => setBranchTarget(e.target.value)}
         >
           {branches.map((b) => (
             <MenuItem key={b} value={b}>

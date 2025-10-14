@@ -1,10 +1,19 @@
 import React, { useMemo } from "react";
-import { Box, Button, Card, CardContent, Typography } from "@mui/material";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Typography,
+  Divider,
+} from "@mui/material";
 import CompareIcon from "@mui/icons-material/Compare";
 import DownloadIcon from "@mui/icons-material/Download";
 import { DiffDialog } from "./DiffDialog";
 import { buildFileTree } from "../utils/fileTreeUtils";
 import { FileTreeView } from "./FileTreeView";
+import CommitBar from "./panels/CommitBar";
+import { serializeDiffForCommit } from "../utils/serializeDiffForCommit";
 
 export default function DiffPanelBase({
   title,
@@ -18,9 +27,21 @@ export default function DiffPanelBase({
   onOpenDetail,
   detail,
   setDetail,
+
+  // new props for commit integration
+  token,
+  repo,
+  branch,
+  onCommitted,
 }) {
   const hasFiles = visibleFiles.length > 0;
   const fileTree = useMemo(() => buildFileTree(visibleFiles), [visibleFiles]);
+
+  // Build commit-ready list of selected files
+  const commitFiles = useMemo(() => {
+    const selectedDiffs = visibleFiles.filter((f) => selected.includes(f.path));
+    return serializeDiffForCommit(selectedDiffs);
+  }, [visibleFiles, selected]);
 
   const selectAll = () => setSelected(visibleFiles.map((c) => c.path));
   const deselectAll = () => setSelected([]);
@@ -36,7 +57,9 @@ export default function DiffPanelBase({
         }}
       >
         {/* Header */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+        <Box
+          sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}
+        >
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             {title}
           </Typography>
@@ -48,14 +71,26 @@ export default function DiffPanelBase({
           >
             {compareLabel}
           </Button>
-          <Button variant="outlined" startIcon={<DownloadIcon />} onClick={onExport}>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={onExport}
+          >
             Export selected (ZIP)
           </Button>
         </Box>
 
         {/* Selection toolbar */}
         {hasFiles && (
-          <Box sx={{ display: "flex", gap: 2, mb: 1, mt: 2, alignItems: "center" }}>
+          <Box
+            sx={{
+              display: "flex",
+              gap: 2,
+              mb: 1,
+              mt: 2,
+              alignItems: "center",
+            }}
+          >
             <Button size="small" variant="outlined" onClick={selectAll}>
               Select all
             </Button>
@@ -70,13 +105,13 @@ export default function DiffPanelBase({
           </Box>
         )}
 
-        {/* Tree structure */}
+        {/* File tree */}
         {hasFiles && (
           <Box
             sx={{
               flex: "1 1 auto",
               minHeight: 0,
-              height: "calc(100vh - 400px)",
+              height: "calc(100vh - 420px)",
               overflowY: "auto",
               border: "1px solid rgba(0,0,0,0.1)",
               borderRadius: 1,
@@ -90,6 +125,20 @@ export default function DiffPanelBase({
               onOpenDetail={onOpenDetail}
             />
           </Box>
+        )}
+
+        {/* Divider & Commit section */}
+        {hasFiles && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <CommitBar
+              token={token}
+              repo={repo}
+              branch={branch}
+              selectedFiles={commitFiles}
+              onCommitted={onCommitted}
+            />
+          </>
         )}
       </CardContent>
 

@@ -5,8 +5,15 @@ import {
   Typography,
   IconButton,
   Collapse,
+  Chip,
 } from "@mui/material";
 import { ExpandMore, ChevronRight } from "@mui/icons-material";
+
+const statusColors = {
+  added: { color: "success.main", chip: "success", label: "A" },
+  modified: { color: "warning.main", chip: "warning", label: "M" },
+  deleted: { color: "error.main", chip: "error", label: "D" },
+};
 
 export function FileTreeView({
   tree,
@@ -19,25 +26,20 @@ export function FileTreeView({
 
   if (!tree) return null;
 
-  // Expand / collapse a folder
+  // Expand / collapse folder
   const toggleFolderOpen = (path) => {
     setOpenFolders((prev) => ({ ...prev, [path]: !prev[path] }));
   };
 
-  // Select / deselect all files inside a folder (using functional state update)
-  const toggleFolderSelection = (node) => {
-    setSelected((prevSelected) => {
-      const allFilePaths = collectAllFilePaths(node);
-      const allSelected = allFilePaths.every((p) => prevSelected.includes(p));
-
-      if (allSelected) {
-        // Deselect all
-        return prevSelected.filter((p) => !allFilePaths.includes(p));
-      } else {
-        // Select all
-        return [...new Set([...prevSelected, ...allFilePaths])];
-      }
-    });
+  // Recursively collect all file paths inside a node
+  const collectAllFilePaths = (node) => {
+    let files = [];
+    if (node.__file) files.push(node.__file.path);
+    const children = node.__children || {};
+    for (const child of Object.values(children)) {
+      files = files.concat(collectAllFilePaths(child));
+    }
+    return files;
   };
 
   const renderNode = (node, prefix = "") =>
@@ -50,6 +52,8 @@ export function FileTreeView({
       if (isFile) {
         const file = value.__file;
         const checked = selected.includes(file.path);
+        const statusInfo = statusColors[file.status] || {};
+
         return (
           <Box
             key={path}
@@ -74,20 +78,35 @@ export function FileTreeView({
             />
             <Typography
               variant="body2"
-              sx={{ flexGrow: 1 }}
+              sx={{
+                flexGrow: 1,
+                color: statusInfo.color || "text.primary",
+                fontWeight: 500,
+              }}
               onClick={() => onOpenDetail(file)}
             >
               {name}
             </Typography>
+            {file.status && (
+              <Chip
+                label={statusInfo.label || file.status[0].toUpperCase()}
+                color={statusInfo.chip}
+                size="small"
+                sx={{ fontWeight: 600 }}
+              />
+            )}
           </Box>
         );
       } else {
         // Folder node
         const allFilePaths = collectAllFilePaths(value);
         const hasFiles = allFilePaths.length > 0;
-        const allSelected = hasFiles && allFilePaths.every((p) => selected.includes(p));
+        const allSelected =
+          hasFiles && allFilePaths.every((p) => selected.includes(p));
         const partiallySelected =
-            hasFiles && !allSelected && allFilePaths.some((p) => selected.includes(p));
+          hasFiles &&
+          !allSelected &&
+          allFilePaths.some((p) => selected.includes(p));
         const isOpen = openFolders[path] ?? false;
 
         return (
@@ -115,22 +134,22 @@ export function FileTreeView({
                 )}
               </IconButton>
 
-              {/* Folder checkbox */}
               <Checkbox
                 size="small"
                 indeterminate={partiallySelected}
                 checked={allSelected}
                 disabled={!hasFiles}
                 onChange={(e) => {
-                    e.stopPropagation();
-                    if (!hasFiles) return;
-                    // use functional update to avoid stale state
-                    setSelected((prev) => {
-                    const shouldDeselect = allFilePaths.every((p) => prev.includes(p));
+                  e.stopPropagation();
+                  if (!hasFiles) return;
+                  setSelected((prev) => {
+                    const shouldDeselect = allFilePaths.every((p) =>
+                      prev.includes(p)
+                    );
                     return shouldDeselect
-                        ? prev.filter((p) => !allFilePaths.includes(p))
-                        : [...new Set([...prev, ...allFilePaths])];
-                    });
+                      ? prev.filter((p) => !allFilePaths.includes(p))
+                      : [...new Set([...prev, ...allFilePaths])];
+                  });
                 }}
               />
 
@@ -158,18 +177,4 @@ export function FileTreeView({
     });
 
   return <>{renderNode(tree)}</>;
-}
-
-// Recursively collect all file paths inside a node
-function collectAllFilePaths(node) {
-  let files = [];
-  // include file at this node (leaf)
-  if (node.__file) files.push(node.__file.path);
-
-  // recurse into children map
-  const children = node.__children || {};
-  for (const child of Object.values(children)) {
-    files = files.concat(collectAllFilePaths(child));
-  }
-  return files;
 }

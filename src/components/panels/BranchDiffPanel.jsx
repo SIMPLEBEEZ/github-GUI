@@ -8,8 +8,8 @@ import { downloadAsZip } from "../../utils/zipUtils";
 export default function BranchDiffPanel({
   token,
   repo,
-  branchA,
-  branchB,
+  branchSource,
+  branchTarget,
   setBusy,
   setSnack,
 }) {
@@ -17,7 +17,7 @@ export default function BranchDiffPanel({
   const [detail, setDetail] = useState(null);
   const [selected, setSelected] = useState([]);
 
-  const canCompare = repo && branchA && branchB && branchA !== branchB;
+  const canCompare = repo && branchSource && branchTarget && branchSource !== branchTarget;
   const visibleFiles = useMemo(
     () => comparison.filter((c) => c.status !== "same"),
     [comparison]
@@ -30,8 +30,8 @@ export default function BranchDiffPanel({
       const cmp = await githubApi.compareBranches(
         token,
         repo.full_name,
-        branchA,
-        branchB
+        branchTarget,
+        branchSource
       );
       const xmlFiles = onlyXmlFiles(cmp.files).map((f) => ({
         path: f.filename,
@@ -55,13 +55,13 @@ export default function BranchDiffPanel({
         token,
         repo.full_name,
         file.path,
-        branchA
+        branchSource
       );
       const headRaw = await githubApi.getFileText(
         token,
         repo.full_name,
         file.path,
-        branchB
+        branchTarget
       );
       const baseText = normalizeXmlText(baseRaw);
       const headText = normalizeXmlText(headRaw);
@@ -69,8 +69,8 @@ export default function BranchDiffPanel({
         setSnack?.({ open: true, message: "File is identical after normalization." });
         return;
       }
-      const diffs = diffText(baseText, headText);
-      setDetail({ path: file.path, diffs, branchA, branchB });
+      const diffs = diffText(headText, baseText);
+      setDetail({ path: file.path, diffs, branchSource, branchTarget });
     } catch (e) {
       setSnack?.({ open: true, message: `Failed to load file: ${e.message}` });
     } finally {
@@ -91,12 +91,12 @@ export default function BranchDiffPanel({
             token,
             repo.full_name,
             c.path,
-            branchB
+            branchTarget
           );
           return { path: c.path, text: meta };
         })
       );
-      downloadAsZip(files, `export_${repo.name}_${branchA}_vs_${branchB}.zip`);
+      downloadAsZip(files, `export_${repo.name}_${branchSource}_vs_${branchTarget}.zip`);
       setSnack?.({ open: true, message: `Exported ${files.length} files.` });
     } catch (e) {
       setSnack?.({ open: true, message: `Export failed: ${e.message}` });
@@ -108,7 +108,7 @@ export default function BranchDiffPanel({
   return (
     <DiffPanelBase
       title="Branch → Branch diff (XML)"
-      compareLabel={`Compare ${branchA} → ${branchB}`}
+      compareLabel={`Compare ${branchSource} → ${branchTarget}`}
       canRun={canCompare}
       visibleFiles={visibleFiles}
       selected={selected}
@@ -118,6 +118,10 @@ export default function BranchDiffPanel({
       onOpenDetail={openDetail}
       detail={detail}
       setDetail={setDetail}
+      token={token}
+      repo={repo}
+      branch={branchTarget}
+      onCommitted={() => console.log("✅ Commit successful")}
     />
   );
 }

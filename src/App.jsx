@@ -19,8 +19,8 @@ export default function App() {
   const { auth, logout } = useGitHubOAuth();
   const [busy, setBusy] = useState(false);
   const [repo, setRepo] = useState(null);
-  const [branchA, setBranchA] = useState("");
-  const [branchB, setBranchB] = useState("");
+  const [branchSource, setBranchSource] = useState("");
+  const [branchTarget, setBranchTarget] = useState("");
   const [tab, setTab] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -149,16 +149,16 @@ export default function App() {
                   <BranchSelectorBar
                     token={auth?.token}
                     repo={repo}
-                    branchA={branchA}
-                    setBranchA={setBranchA}
-                    branchB={branchB}
-                    setBranchB={setBranchB}
+                    branchSource={branchSource}
+                    setBranchSource={setBranchSource}
+                    branchTarget={branchTarget}
+                    setBranchTarget={setBranchTarget}
                   />
                   <BranchDiffPanel
                     token={auth?.token}
                     repo={repo}
-                    branchA={branchA}
-                    branchB={branchB}
+                    branchSource={branchSource}
+                    branchTarget={branchTarget}
                     setBusy={setBusy}
                   />
                 </>
@@ -169,8 +169,8 @@ export default function App() {
           {/* 🔹 STATUS BAR */}
           <StatusBar
             repo={repo}
-            branchA={branchA}
-            branchB={branchB}
+            branchSource={branchSource}
+            branchTarget={branchTarget}
             busy={busy}
           />
         </Box>

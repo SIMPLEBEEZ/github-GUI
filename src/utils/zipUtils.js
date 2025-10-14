@@ -1,16 +1,26 @@
 import JSZip from "jszip";
+import { normalizeXmlText } from "./diffUtils";
 
-export async function fileListFromZip(file) {
-  const zip = await JSZip.loadAsync(file);
+export async function fileListFromZip(zipFile) {
+  const zip = await JSZip.loadAsync(zipFile);
   const entries = [];
-  await Promise.all(
-    Object.keys(zip.files).map(async (name) => {
-      const entry = zip.files[name];
-      if (entry.dir || !name.toLowerCase().endsWith(".xml")) return;
-      const text = await entry.async("string");
-      entries.push({ path: name, text });
-    })
-  );
+
+  for (const [path, file] of Object.entries(zip.files)) {
+    if (file.dir) continue;
+    if (!/\.xml$/i.test(path)) continue;
+
+    // ✅ Read both text and raw bytes
+    const bytes = await file.async("uint8array");
+
+    // Decode text for later diff preview
+    const decoder = new TextDecoder("utf-8");
+    let text = decoder.decode(bytes);
+    text = normalizeXmlText(text);
+
+    // ✅ Store both text (for UI) and bytes (for exact hash)
+    entries.push({ path, text, rawBytes: bytes });
+  }
+
   return entries;
 }
 

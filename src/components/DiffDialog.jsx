@@ -18,9 +18,9 @@ export function DiffDialog({ detail, onClose }) {
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 2 }}>
         <Box sx={{ flex: 1 }}>
           Diff: {detail.path}
-          {detail.branchA && detail.branchB && (
+          {detail.branchSource && detail.branchTarget && (
             <Typography variant="body2" color="text.secondary">
-              {detail.branchA} → {detail.branchB}
+              {detail.branchSource} → {detail.branchTarget}
             </Typography>
           )}
         </Box>
