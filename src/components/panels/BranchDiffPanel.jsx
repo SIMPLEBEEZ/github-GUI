@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import DiffPanelBase from "../DiffPanelBase";
 import { githubApi } from "../../api/githubApi";
-import { onlyXmlFiles, mapLimit } from "../../utils/commonUtils";
+import { onlyXmlFiles } from "../../utils/commonUtils";
 import { diffText, normalizeXmlText } from "../../utils/diffUtils";
 import { downloadAsZip } from "../../utils/zipUtils";
 
@@ -27,20 +27,45 @@ export default function BranchDiffPanel({
     if (!canCompare) return;
     setBusy(true);
     try {
+      // 🧩 Compare target vs source
       const cmp = await githubApi.compareBranches(
         token,
         repo.full_name,
         branchTarget,
         branchSource
       );
-      const xmlFiles = onlyXmlFiles(cmp.files).map((f) => ({
-        path: f.filename,
-        status: f.status,
-      }));
+
+      // 🧩 Build list of XML files
+      const xmlFiles = await Promise.all(
+        onlyXmlFiles(cmp.files).map(async (f) => {
+          const path = f.filename;
+          let newContent = "";
+
+          // Load the content from SOURCE branch (we want to copy A → B)
+          if (["added", "modified"].includes(f.status)) {
+            try {
+              newContent = await githubApi.getFileText(
+                token,
+                repo.full_name,
+                path,
+                branchSource
+              );
+            } catch {
+              newContent = "";
+            }
+          }
+
+          // 🔹 include sourceBranch in each record (for commitChanges)
+          return { path, status: f.status, newContent, sourceBranch: branchSource };
+        })
+      );
+
       setComparison(xmlFiles);
       setSelected(xmlFiles.filter((f) => f.status !== "same").map((f) => f.path));
-      if (xmlFiles.length === 0)
+
+      if (xmlFiles.length === 0) {
         setSnack?.({ open: true, message: "No XML file changes found." });
+      }
     } catch (e) {
       setSnack?.({ open: true, message: `Comparison failed: ${e.message}` });
     } finally {

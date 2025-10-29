@@ -4,7 +4,7 @@
  *
  * @param {Array} diffs - List of diff objects (from zip or branch diff)
  * @param {string} basePath - Optional base path prefix
- * @returns {Array<{ path: string, content: string }>}
+ * @returns {Array<{ path: string, content: string, sourceBranch?: string }>}
  */
 export function serializeDiffForCommit(diffs, basePath = "") {
   if (!Array.isArray(diffs)) return [];
@@ -14,7 +14,7 @@ export function serializeDiffForCommit(diffs, basePath = "") {
     .map((item) => {
       const path = basePath ? `${basePath}/${item.path}` : item.path;
 
-      // 🔹 unified content field detection
+      // 🔹 unified content detection
       const content =
         item.newContent ?? // used by branch-based diffs
         item.zipText ??    // used by ZIP-based diffs
@@ -22,6 +22,9 @@ export function serializeDiffForCommit(diffs, basePath = "") {
         item.content ??    // already prepared
         "";
 
-      return { path, content };
+      // 🔹 carry over the source branch (important for commitChanges)
+      const sourceBranch = item.sourceBranch ?? undefined;
+
+      return { path, content, sourceBranch };
     });
 }

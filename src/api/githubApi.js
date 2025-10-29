@@ -91,7 +91,6 @@ export const githubApi = {
     return ghGet(url, token);
   },
 
-  // 🔹 Unified method for branch creation (used by App.jsx)
   async createBranch(token, fullName, newBranch, fromBranch) {
     const ref = await this.getBranch(token, fullName, fromBranch);
     const sha = ref.object.sha;
@@ -107,38 +106,68 @@ export const githubApi = {
   },
 
   // 🧩 COMMITS --------------------------------------------------------
-  async commitChanges(token, fullName, branch, files, message) {
+  /**
+   * Create a commit that updates target branch with selected files.
+   * Automatically reuses blob SHAs from the source branch to prevent false diffs.
+   * @param {string} token - GitHub token
+   * @param {string} fullName - e.g. "user/repo"
+   * @param {string} targetBranch - branch to update
+   * @param {Array<{path: string, content?: string, sourceBranch?: string}>} files
+   * @param {string} message - commit message
+   */
+  async commitChanges(token, fullName, targetBranch, files, message) {
     if (!files?.length) throw new Error("No files to commit");
 
-    // 1️⃣ Get current branch reference
-    const refUrl = `${GITHUB_API}/repos/${fullName}/git/ref/heads/${encodeURIComponent(branch)}`;
+    // Determine source branch (take from first file if available)
+    const sourceBranch = files[0]?.sourceBranch || targetBranch;
+
+    // 1️⃣ Get current target branch ref and latest commit
+    const refUrl = `${GITHUB_API}/repos/${fullName}/git/ref/heads/${encodeURIComponent(targetBranch)}`;
     const refData = await ghGet(refUrl, token);
     const latestCommitSha = refData.object.sha;
 
-    // 2️⃣ Get the latest commit to get its tree SHA
     const commitUrl = `${GITHUB_API}/repos/${fullName}/git/commits/${latestCommitSha}`;
     const commitData = await ghGet(commitUrl, token);
     const baseTreeSha = commitData.tree.sha;
 
-    // 3️⃣ Create blobs for each file (in parallel)
-    const blobPromises = files.map((f) =>
-      ghPost(`${GITHUB_API}/repos/${fullName}/git/blobs`, token, {
-        content: f.content,
-        encoding: "utf-8",
-      }).then((b) => ({
-        path: f.path,
-        mode: "100644",
-        type: "blob",
-        sha: b.sha,
-      }))
-    );
-    const blobs = await Promise.all(blobPromises);
+    // 2️⃣ Get source tree to reuse SHAs for unchanged files
+    const sourceTree = await this.getTreeRecursive(token, fullName, sourceBranch);
+    const sourceMap = new Map(sourceTree.tree.map((t) => [t.path, t.sha]));
+
+    // 3️⃣ Prepare tree entries (reuse SHA if exists in source branch)
+    const treeEntries = [];
+
+    for (const f of files) {
+      const sourceSha = sourceMap.get(f.path);
+
+      if (sourceSha) {
+        // Reuse SHA from source branch
+        treeEntries.push({
+          path: f.path,
+          mode: "100644",
+          type: "blob",
+          sha: sourceSha,
+        });
+      } else {
+        // Create a new blob if not present in source branch
+        const blob = await ghPost(`${GITHUB_API}/repos/${fullName}/git/blobs`, token, {
+          content: f.content,
+          encoding: "utf-8",
+        });
+        treeEntries.push({
+          path: f.path,
+          mode: "100644",
+          type: "blob",
+          sha: blob.sha,
+        });
+      }
+    }
 
     // 4️⃣ Create a new tree
     const treeUrl = `${GITHUB_API}/repos/${fullName}/git/trees`;
     const treeData = await ghPost(treeUrl, token, {
       base_tree: baseTreeSha,
-      tree: blobs,
+      tree: treeEntries,
     });
 
     // 5️⃣ Create a new commit
@@ -149,18 +178,18 @@ export const githubApi = {
       parents: [latestCommitSha],
     });
 
-    // 6️⃣ Update the branch reference to point to the new commit
-    const updateRefUrl = `${GITHUB_API}/repos/${fullName}/git/refs/heads/${encodeURIComponent(branch)}`;
-    await fetch(updateRefUrl, {
+    // 6️⃣ Update the branch reference
+    const updateRefUrl = `${GITHUB_API}/repos/${fullName}/git/refs/heads/${encodeURIComponent(targetBranch)}`;
+    const res = await fetch(updateRefUrl, {
       method: "PATCH",
       headers: {
         ...withAuthHeaders(token),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ sha: newCommit.sha }),
-    }).then((res) => {
-      if (!res.ok) throw new Error(`Failed to update branch: ${res.statusText}`);
     });
+
+    if (!res.ok) throw new Error(`Failed to update branch: ${res.statusText}`);
 
     return newCommit;
   },
