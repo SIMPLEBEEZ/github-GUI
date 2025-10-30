@@ -105,8 +105,14 @@ export default function ZipDiffPanel({
         setSnack?.({ open: true, message: "File is identical after normalization." });
         return;
       }
-      const diffs = diffText(zipText, repoText);
-      setDetail({ path: c.path, diffs, branchA: branchRef, branchB: "ZIP" });
+  // Use the same convention as BranchDiffPanel: diffs = diffText(head, base)
+  // For ZIP → Branch view the UI title implies ZIP is the source and branch is the target.
+  // Compute diffs with head=repoText (branch) and base=zipText (ZIP).
+  const diffs = diffText(repoText, zipText);
+  // Provide clearer labels for the dialog
+  const branchSourceLabel = "ZIP (uploaded)";
+  const branchTargetLabel = `branch: ${branchRef}`;
+  setDetail({ path: c.path, diffs, branchSource: branchSourceLabel, branchTarget: branchTargetLabel });
     } catch (e) {
       setSnack?.({ open: true, message: `Failed to load file details: ${e.message}` });
     } finally {

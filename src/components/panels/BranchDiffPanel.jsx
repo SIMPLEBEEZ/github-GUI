@@ -95,7 +95,10 @@ export default function BranchDiffPanel({
         return;
       }
       const diffs = diffText(headText, baseText);
-      setDetail({ path: file.path, diffs, branchSource, branchTarget });
+      // Use clearer labels in the diff dialog
+      const branchSourceLabel = `branch: ${branchSource}`;
+      const branchTargetLabel = `branch: ${branchTarget}`;
+      setDetail({ path: file.path, diffs, branchSource: branchSourceLabel, branchTarget: branchTargetLabel });
     } catch (e) {
       setSnack?.({ open: true, message: `Failed to load file: ${e.message}` });
     } finally {
@@ -146,7 +149,16 @@ export default function BranchDiffPanel({
       token={token}
       repo={repo}
       branch={branchTarget}
-      onCommitted={() => console.log("✅ Commit successful")}
+      onCommitted={async (res) => {
+        console.log("✅ Commit successful", res);
+        // Refresh comparison so committed files are no longer shown as changed
+        try {
+          await runCompare();
+          setSnack?.({ open: true, message: "Commit applied — refreshed comparison." });
+        } catch (e) {
+          setSnack?.({ open: true, message: `Committed but refresh failed: ${e.message}` });
+        }
+      }}
     />
   );
 }

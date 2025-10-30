@@ -142,7 +142,6 @@ export const githubApi = {
    * - Uses cached trees to reduce API calls.
    */
   async commitChanges(token, fullName, sourceBranch, targetBranch, files, message) {
-    const treeCache = new Map();
 
     async function getTreeByBranch(branch) {
       const cacheKey = `${fullName}:${branch}`;
@@ -252,6 +251,14 @@ export const githubApi = {
         ref: `refs/heads/${targetBranch}`,
         sha: newCommit.sha,
       });
+    }
+
+    // Invalidate cached trees for affected branches so subsequent reads reflect the commit
+    try {
+      treeCache.delete(`${fullName}:${targetBranch}`);
+      if (sourceBranch) treeCache.delete(`${fullName}:${sourceBranch}`);
+    } catch (e) {
+      // ignore cache invalidation errors — non-fatal
     }
 
     return newCommit;
