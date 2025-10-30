@@ -35,14 +35,15 @@ export default function BranchDiffPanel({
         branchSource
       );
 
-      // 🧩 Build list of XML files
+      // 🧩 Build list of XML files with SHA optimization
       const xmlFiles = await Promise.all(
         onlyXmlFiles(cmp.files).map(async (f) => {
           const path = f.filename;
+          let status = f.status;
           let newContent = "";
 
-          // Load the content from SOURCE branch (we want to copy A → B)
-          if (["added", "modified"].includes(f.status)) {
+          // If the file is added, SHA cannot be compared, so fetch the content
+          if (status === "added") {
             try {
               newContent = await githubApi.getFileText(
                 token,
@@ -53,10 +54,52 @@ export default function BranchDiffPanel({
             } catch {
               newContent = "";
             }
+            return { path, status, newContent, sourceBranch: branchSource };
           }
 
-          // 🔹 include sourceBranch in each record (for commitChanges)
-          return { path, status: f.status, newContent, sourceBranch: branchSource };
+          // If the file is modified, compare SHA
+          // cmp.files contains 'sha' (new) and 'previous_sha' (old)
+          const sha = f.sha;
+          const previousSha = f.previous_sha;
+
+          // If SHA is the same, the file is identical, no need to fetch content
+          if (status === "modified" && sha && previousSha && sha === previousSha) {
+            status = "same";
+            return { path, status, newContent: "", sourceBranch: branchSource };
+          }
+
+          // If SHA is different or missing, fetch content for comparison
+          try {
+            newContent = await githubApi.getFileText(
+              token,
+              repo.full_name,
+              path,
+              branchSource
+            );
+          } catch {
+            newContent = "";
+          }
+
+          let targetContent = "";
+          try {
+            targetContent = await githubApi.getFileText(
+              token,
+              repo.full_name,
+              path,
+              branchTarget
+            );
+          } catch {
+            targetContent = "";
+          }
+
+          // Normalize and compare
+          const normSource = normalizeXmlText(newContent);
+          const normTarget = normalizeXmlText(targetContent);
+          if (status === "modified" && normSource === normTarget) {
+            status = "same";
+          }
+
+          return { path, status, newContent, sourceBranch: branchSource };
         })
       );
 
