@@ -1,16 +1,12 @@
 /**
- * Converts a list of diff results into GitHub API–ready commit data.
- * Works for both ZIP and Branch diffs.
- *
- * @param {Array} diffs - List of diff objects (from zip or branch diff)
- * @param {string} basePath - Optional base path prefix
- * @returns {Array<{ path: string, content: string, sourceBranch?: string }>}
+ * Converts a list of diff results into commit-ready objects for the GitHub API.
+ * Supports add/modify/delete and both ZIP-based and branch-based diffs.
  */
 export function serializeDiffForCommit(diffs, basePath = "") {
   if (!Array.isArray(diffs)) return [];
 
   return diffs
-    .filter((item) => item && item.status !== "deleted")
+    .filter(Boolean)
     .map((item) => {
       const path = basePath ? `${basePath}/${item.path}` : item.path;
 
@@ -24,7 +20,8 @@ export function serializeDiffForCommit(diffs, basePath = "") {
 
       // 🔹 carry over the source branch (important for commitChanges)
       const sourceBranch = item.sourceBranch ?? undefined;
+      const isDelete = item.status === "removed" || item.status === "deleted";
 
-      return { path, content, sourceBranch };
+      return { path, content, sourceBranch, delete: isDelete };
     });
 }

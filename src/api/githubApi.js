@@ -1,4 +1,8 @@
+import { gitBlobSha } from "../utils/diffUtils";
+
 const GITHUB_API = "https://api.github.com";
+// Simple in-memory cache for branch trees
+const treeCache = new Map();
 
 function withAuthHeaders(token) {
   return {
@@ -29,6 +33,19 @@ async function ghPost(url, token, body) {
 async function ghPut(url, token, body) {
   const res = await fetch(url, {
     method: "PUT",
+    headers: {
+      ...withAuthHeaders(token),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
+  return res.json();
+}
+
+async function ghPatch(url, token, body) {
+  const res = await fetch(url, {
+    method: "PATCH",
     headers: {
       ...withAuthHeaders(token),
       "Content-Type": "application/json",
@@ -115,81 +132,127 @@ export const githubApi = {
    * @param {Array<{path: string, content?: string, sourceBranch?: string}>} files
    * @param {string} message - commit message
    */
-  async commitChanges(token, fullName, targetBranch, files, message) {
-    if (!files?.length) throw new Error("No files to commit");
 
-    // Determine source branch (take from first file if available)
-    const sourceBranch = files[0]?.sourceBranch || targetBranch;
+  /**
+   * Commits selected files from sourceBranch (or ZIP) into targetBranch.
+   * - Works for both ZIP→branch and branch→branch.
+   * - Skips identical files to avoid empty commits.
+   * - Handles deletions (sha: null).
+   * - Creates new branch if target does not exist.
+   * - Uses cached trees to reduce API calls.
+   */
+  async commitChanges(token, fullName, sourceBranch, targetBranch, files, message) {
+    const treeCache = new Map();
 
-    // 1️⃣ Get current target branch ref and latest commit
-    const refUrl = `${GITHUB_API}/repos/${fullName}/git/ref/heads/${encodeURIComponent(targetBranch)}`;
-    const refData = await ghGet(refUrl, token);
-    const latestCommitSha = refData.object.sha;
+    async function getTreeByBranch(branch) {
+      const cacheKey = `${fullName}:${branch}`;
+      if (treeCache.has(cacheKey)) return treeCache.get(cacheKey);
 
-    const commitUrl = `${GITHUB_API}/repos/${fullName}/git/commits/${latestCommitSha}`;
-    const commitData = await ghGet(commitUrl, token);
-    const baseTreeSha = commitData.tree.sha;
+      // 1️⃣ Get branch reference (may not exist)
+      const ref = await ghGet(`${GITHUB_API}/repos/${fullName}/git/refs/heads/${branch}`, token);
+      if (!ref?.object?.sha) throw new Error(`Branch ${branch} not found`);
+      const commitSha = ref.object.sha;
 
-    // 2️⃣ Get source tree to reuse SHAs for unchanged files
-    const sourceTree = await this.getTreeRecursive(token, fullName, sourceBranch);
-    const sourceMap = new Map(sourceTree.tree.map((t) => [t.path, t.sha]));
+      // 2️⃣ Get commit to obtain tree SHA
+      const commit = await ghGet(`${GITHUB_API}/repos/${fullName}/git/commits/${commitSha}`, token);
+      const treeSha = commit.tree.sha;
 
-    // 3️⃣ Prepare tree entries (reuse SHA if exists in source branch)
-    const treeEntries = [];
+      // 3️⃣ Get full tree recursively
+      const tree = await ghGet(
+        `${GITHUB_API}/repos/${fullName}/git/trees/${treeSha}?recursive=1`,
+        token
+      );
 
-    for (const f of files) {
-      const sourceSha = sourceMap.get(f.path);
+      treeCache.set(cacheKey, tree);
+      return tree;
+    }
 
-      if (sourceSha) {
-        // Reuse SHA from source branch
-        treeEntries.push({
-          path: f.path,
-          mode: "100644",
-          type: "blob",
-          sha: sourceSha,
-        });
-      } else {
-        // Create a new blob if not present in source branch
-        const blob = await ghPost(`${GITHUB_API}/repos/${fullName}/git/blobs`, token, {
-          content: f.content,
-          encoding: "utf-8",
-        });
-        treeEntries.push({
-          path: f.path,
-          mode: "100644",
-          type: "blob",
-          sha: blob.sha,
-        });
+    // 🧩 Get target branch ref (create if missing)
+    let baseSha = null;
+    let targetRef = null;
+    try {
+      targetRef = await ghGet(`${GITHUB_API}/repos/${fullName}/git/refs/heads/${targetBranch}`, token);
+      baseSha = targetRef?.object?.sha || null;
+    } catch {
+      console.warn(`Target branch ${targetBranch} not found – will be created`);
+    }
+
+    // 🧩 Load both trees (if sourceBranch provided)
+    let sourceTree = { tree: [] };
+    let targetTree = { tree: [] };
+
+    if (sourceBranch) {
+      try {
+        sourceTree = await getTreeByBranch(sourceBranch);
+      } catch (err) {
+        console.warn("Source branch tree load failed:", err);
       }
     }
 
-    // 4️⃣ Create a new tree
-    const treeUrl = `${GITHUB_API}/repos/${fullName}/git/trees`;
-    const treeData = await ghPost(treeUrl, token, {
-      base_tree: baseTreeSha,
+    if (targetRef) {
+      try {
+        targetTree = await getTreeByBranch(targetBranch);
+      } catch (err) {
+        console.warn("Target branch tree load failed:", err);
+      }
+    }
+
+    const sourceMap = new Map(sourceTree.tree.map((t) => [t.path, t.sha]));
+    const targetMap = new Map(targetTree.tree.map((t) => [t.path, t.sha]));
+
+    // 🧩 Build tree entries
+    const treeEntries = [];
+    for (const f of files) {
+      const sourceSha = sourceMap.get(f.path);
+      const targetSha = targetMap.get(f.path);
+
+      // Skip identical
+      if (sourceSha && sourceSha === targetSha) continue;
+
+      if (f.delete === true) {
+        treeEntries.push({ path: f.path, mode: "100644", type: "blob", sha: null });
+        continue;
+      }
+
+      if (sourceSha) {
+        treeEntries.push({ path: f.path, mode: "100644", type: "blob", sha: sourceSha });
+      } else {
+        const blob = await ghPost(`${GITHUB_API}/repos/${fullName}/git/blobs`, token, {
+          content: f.content ?? "",
+          encoding: "utf-8",
+        });
+        treeEntries.push({ path: f.path, mode: "100644", type: "blob", sha: blob.sha });
+      }
+    }
+
+    if (treeEntries.length === 0) {
+      return { noop: true, message: "No changes to commit." };
+    }
+
+    // 🧩 Create new tree
+    const newTree = await ghPost(`${GITHUB_API}/repos/${fullName}/git/trees`, token, {
+      base_tree: baseSha || undefined,
       tree: treeEntries,
     });
 
-    // 5️⃣ Create a new commit
-    const commitCreateUrl = `${GITHUB_API}/repos/${fullName}/git/commits`;
-    const newCommit = await ghPost(commitCreateUrl, token, {
+    // 🧩 Create commit
+    const newCommit = await ghPost(`${GITHUB_API}/repos/${fullName}/git/commits`, token, {
       message,
-      tree: treeData.sha,
-      parents: [latestCommitSha],
+      tree: newTree.sha,
+      parents: baseSha ? [baseSha] : [],
     });
 
-    // 6️⃣ Update the branch reference
-    const updateRefUrl = `${GITHUB_API}/repos/${fullName}/git/refs/heads/${encodeURIComponent(targetBranch)}`;
-    const res = await fetch(updateRefUrl, {
-      method: "PATCH",
-      headers: {
-        ...withAuthHeaders(token),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ sha: newCommit.sha }),
-    });
-
-    if (!res.ok) throw new Error(`Failed to update branch: ${res.statusText}`);
+    // 🧩 Update or create branch ref
+    if (targetRef) {
+      await ghPatch(`${GITHUB_API}/repos/${fullName}/git/refs/heads/${targetBranch}`, token, {
+        sha: newCommit.sha,
+      });
+    } else {
+      await ghPost(`${GITHUB_API}/repos/${fullName}/git/refs`, token, {
+        ref: `refs/heads/${targetBranch}`,
+        sha: newCommit.sha,
+      });
+    }
 
     return newCommit;
   },

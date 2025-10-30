@@ -20,14 +20,22 @@ export default function CommitBar({ token, repo, branch, selectedFiles, onCommit
     try {
       setLoading(true);
       setStatus("Committing...");
+      // commitChanges signature is (token, fullName, sourceBranch, targetBranch, files, message)
+      // We don't have a single sourceBranch here (each file may carry its own sourceBranch),
+      // so pass undefined for sourceBranch and provide targetBranch (branch) and files.
       const res = await githubApi.commitChanges(
         token,
         repo.full_name,
+        undefined,
         branch,
         selectedFiles,
         message
       );
-      setStatus("✅ Commit successful");
+      if (res?.noop) {
+        setStatus("ℹ️ No changes – nothing to commit.");
+      } else {
+        setStatus("✅ Commit successful");
+      };
       setMessage("");
       if (onCommitted) onCommitted(res);
     } catch (err) {
