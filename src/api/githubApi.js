@@ -12,7 +12,8 @@ function withAuthHeaders(token) {
 }
 
 async function ghGet(url, token) {
-  const res = await fetch(url, { headers: withAuthHeaders(token) });
+  // Force network fetch to avoid stale disk cache in the browser
+  const res = await fetch(url, { headers: withAuthHeaders(token), cache: "no-store" });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
   return res.json();
 }
@@ -67,7 +68,8 @@ export const githubApi = {
 
   async getBlobRaw(token, fullName, sha) {
     const url = `${GITHUB_API}/repos/${fullName}/git/blobs/${sha}`;
-    const res = await fetch(url, { headers: withAuthHeaders(token) });
+    // Avoid cached blob results so we always get fresh content after commits
+    const res = await fetch(url, { headers: withAuthHeaders(token), cache: "no-store" });
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     const data = await res.json();
     return data.encoding === "base64"

@@ -147,7 +147,27 @@ export default function ZipDiffPanel({
       token={token}
       repo={repo}
       branch={branchRef}
-      onCommitted={() => console.log("✅ Commit successful")}
+      onCommitted={async (res, committedFiles) => {
+        console.log("✅ Commit successful", res);
+        try {
+          // Optimistically remove committed files from current comparison so they
+          // disappear immediately in the UI. committedFiles is the array passed
+          // from CommitBar (serializeDiffForCommit output), include {path}.
+          if (Array.isArray(committedFiles) && committedFiles.length) {
+            const committedPaths = committedFiles.map((f) => f.path).filter(Boolean);
+            if (committedPaths.length) {
+              setComparison((prev) => prev.filter((c) => !committedPaths.includes(c.path)));
+              setSelected((prev) => prev.filter((p) => !committedPaths.includes(p)));
+            }
+          }
+
+          // Re-run compare to fully sync with remote state
+          await runCompare();
+          setSnack?.({ open: true, message: "Commit applied — refreshed comparison." });
+        } catch (e) {
+          setSnack?.({ open: true, message: `Committed but refresh failed: ${e.message}` });
+        }
+      }}
     />
   );
 }

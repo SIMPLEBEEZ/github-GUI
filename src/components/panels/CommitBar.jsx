@@ -37,7 +37,9 @@ export default function CommitBar({ token, repo, branch, selectedFiles, onCommit
         setStatus("✅ Commit successful");
       };
       setMessage("");
-      if (onCommitted) onCommitted(res);
+      // Notify parent and pass the files that were committed so the UI
+      // can optimistically update without waiting for a full refresh.
+      if (onCommitted) onCommitted(res, selectedFiles);
     } catch (err) {
       console.error("Commit failed:", err);
       setStatus("❌ Commit failed");

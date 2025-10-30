@@ -192,10 +192,20 @@ export default function BranchDiffPanel({
       token={token}
       repo={repo}
       branch={branchTarget}
-      onCommitted={async (res) => {
+      onCommitted={async (res, committedFiles) => {
         console.log("✅ Commit successful", res);
-        // Refresh comparison so committed files are no longer shown as changed
         try {
+          // Optimistically remove committed files from the current comparison so they
+          // disappear immediately in the UI (committedFiles is an array of {path,...}).
+          if (Array.isArray(committedFiles) && committedFiles.length) {
+            const committedPaths = committedFiles.map((f) => f.path).filter(Boolean);
+            if (committedPaths.length) {
+              setComparison((prev) => prev.filter((c) => !committedPaths.includes(c.path)));
+              setSelected((prev) => prev.filter((p) => !committedPaths.includes(p)));
+            }
+          }
+
+          // Also re-run compare to ensure state is fully in sync with the repo
           await runCompare();
           setSnack?.({ open: true, message: "Commit applied — refreshed comparison." });
         } catch (e) {
