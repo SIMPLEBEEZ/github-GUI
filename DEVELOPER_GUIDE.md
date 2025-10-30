@@ -222,9 +222,11 @@ npm run deploy
 ```
 
 **Vercel:**
-- Set environment variables `VITE_GITHUB_CLIENT_ID` and `VITE_REDIRECT_URL`.  
-- Build command: `npm run build`  
-- Output directory: `dist`
+- https://vercel.com/
+- used as an redirect for CORS compatible login with OAuth 
+- need to be set up over GitHub repository https://github.com/SIMPLEBEEZ/github-oauth-proxy
+- Set environment variables `ALLOWED_ORIGIN` to `https://simplebeez.github.io` and `GITHUB_CLIENT_ID` to `Client ID` you get at https://github.com/organizations/SIMPLEBEEZ/settings/applications/3194090.
+- is deployed on push to the repository 
 
 ---
 
