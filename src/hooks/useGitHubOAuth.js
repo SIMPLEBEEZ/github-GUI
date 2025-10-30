@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 
 const PROXY_DEVICE_URL = "https://github-oauth-proxy-omega.vercel.app/api/github-device";
@@ -10,6 +10,40 @@ export function useGitHubOAuth() {
     return saved ? JSON.parse(saved) : null;
   });
   const [loading, setLoading] = useState(false);
+
+  // Keep multiple hook instances in sync (different components may call useGitHubOAuth())
+  // We use a simple CustomEvent so other instances can update their local state
+  // immediately when one instance logs in/out without requiring a page reload.
+  // Register storage / custom event listener on mount.
+  // Note: storage events don't fire within the same window, so we dispatch a CustomEvent below.
+  useEffect(() => {
+    const onAuthChanged = (e) => {
+      try {
+        const detail = e.detail;
+        // detail may be null (logged out) or an object (logged in)
+        if (detail === undefined) return;
+        setAuth(detail);
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    window.addEventListener("github_auth_changed", onAuthChanged);
+
+    // Also respond to storage events in case auth changes in another tab
+    const onStorage = (e) => {
+      if (e.key === "github_auth") {
+        const val = e.newValue ? JSON.parse(e.newValue) : null;
+        setAuth(val);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.removeEventListener("github_auth_changed", onAuthChanged);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   // 🪟 Opens a real popup window with device code and link
   const openPopup = (code, uri) => {
@@ -107,6 +141,10 @@ export function useGitHubOAuth() {
           const session = { token: tData.access_token, user };
           localStorage.setItem("github_auth", JSON.stringify(session));
           setAuth(session);
+          // notify other hook instances in this page
+          try {
+            window.dispatchEvent(new CustomEvent("github_auth_changed", { detail: session }));
+          } catch {}
 
           if (popup && !popup.closed) popup.close();
           break;
@@ -128,6 +166,9 @@ export function useGitHubOAuth() {
   function logout() {
     localStorage.removeItem("github_auth");
     setAuth(null);
+    try {
+      window.dispatchEvent(new CustomEvent("github_auth_changed", { detail: null }));
+    } catch {}
     toast("Logged out 👋");
   }
 
