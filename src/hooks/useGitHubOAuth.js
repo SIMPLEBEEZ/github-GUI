@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 
-const PROXY_DEVICE_URL = "https://github-oauth-proxy-omega.vercel.app/api/github-device";
-const PROXY_TOKEN_URL  = "https://github-oauth-proxy-omega.vercel.app/api/github-token";
+// Proxy base URL can be found in Vercel project settings
+const PROXY_BASE = "https://github-oauth-proxy-nine.vercel.app";
+const PROXY_DEVICE_URL = `${PROXY_BASE}/api/github-device`;
+const PROXY_TOKEN_URL = `${PROXY_BASE}/api/github-token`;
 
 export function useGitHubOAuth() {
   const [auth, setAuth] = useState(() => {
